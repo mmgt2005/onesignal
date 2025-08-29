@@ -12,7 +12,7 @@
 				const appId = urlParams.get("appId");
 
 				await OneSignal.init({
-					appId: appId,
+					appId: "appId",
 				});
 
 				OneSignal.User.PushSubscription.addEventListener("change", (event) => {
