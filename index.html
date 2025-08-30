@@ -12,6 +12,8 @@
 				const appId = urlParams.get("appId");
 				const externalID = urlParams.get("externalID");
 				
+				console.log("URL Parameters:", { appId, externalID });
+				
 				if (!appId) {
 					showError("Missing appId parameter in URL");
 					return;
@@ -27,35 +29,81 @@
 						appId: appId,
 					});
 					
-					// Set external_id immediately after initialization
-					await OneSignal.login(externalID);
-					console.log("External ID set successfully:", externalID);
+					console.log("OneSignal initialized successfully");
 					
-					// Also add as alias for backward compatibility
-					OneSignal.User.addAlias("external_id", externalID);
+					// Wait for OneSignal to be fully ready
+					await OneSignal.User.PushSubscription.optIn();
+					console.log("Push subscription opt-in triggered");
 					
 					// Listen for push subscription changes
-					OneSignal.User.PushSubscription.addEventListener("change", (event) => {
-						console.log("Push subscription changed:", event);
+					OneSignal.User.PushSubscription.addEventListener("change", async (event) => {
+						console.log("Push subscription event:", event);
 						
 						if (event.current.optedIn) {
-							showSuccess("Done! Push notifications are enabled and external ID is set. You can now close this page.");
+							console.log("User opted in, setting external ID:", externalID);
+							
+							try {
+								// Method 1: Use login (preferred for v16)
+								await OneSignal.login(externalID);
+								console.log("OneSignal.login() completed with external ID:", externalID);
+								
+								// Method 2: Add alias as backup
+								OneSignal.User.addAlias("external_id", externalID);
+								console.log("Alias added:", externalID);
+								
+								// Method 3: Set external user ID directly (fallback)
+								OneSignal.User.addTag("external_user_id", externalID);
+								console.log("Tag added:", externalID);
+								
+								// Wait a moment and verify
+								setTimeout(async () => {
+									const aliases = OneSignal.User.getAliases();
+									const tags = OneSignal.User.getTags();
+									console.log("Current aliases:", aliases);
+									console.log("Current tags:", tags);
+									
+									showSuccess("Done! Push notifications are enabled and external ID is set. You can now close this page.");
+								}, 2000);
+								
+							} catch (error) {
+								console.error("Error setting external ID:", error);
+								showError("Failed to set external ID: " + error.message);
+							}
 						}
 					});
 					
-					// Check if user is already subscribed
+					// Also try setting external ID immediately if already subscribed
 					const isPushSupported = OneSignal.Notifications.isPushSupported();
-					const permission = await OneSignal.Notifications.getPermissionStatus();
 					
 					if (!isPushSupported) {
 						showError("Push notifications are not supported on this device/browser");
 						return;
 					}
 					
-					if (permission === "granted") {
-						const isOptedIn = await OneSignal.User.PushSubscription.getOptedIn();
-						if (isOptedIn) {
-							showSuccess("Done! Push notifications are already enabled and external ID is set. You can now close this page.");
+					// Check current subscription status
+					const isOptedIn = await OneSignal.User.PushSubscription.getOptedIn();
+					console.log("Current opt-in status:", isOptedIn);
+					
+					if (isOptedIn) {
+						console.log("User already opted in, setting external ID immediately");
+						
+						try {
+							await OneSignal.login(externalID);
+							OneSignal.User.addAlias("external_id", externalID);
+							OneSignal.User.addTag("external_user_id", externalID);
+							
+							setTimeout(() => {
+								const aliases = OneSignal.User.getAliases();
+								const tags = OneSignal.User.getTags();
+								console.log("Current aliases:", aliases);
+								console.log("Current tags:", tags);
+								
+								showSuccess("Done! Push notifications are already enabled and external ID is set. You can now close this page.");
+							}, 1000);
+							
+						} catch (error) {
+							console.error("Error setting external ID for existing subscription:", error);
+							showError("Failed to set external ID: " + error.message);
 						}
 					}
 					
