@@ -22,6 +22,9 @@
 
 						if (externalID) {
 							OneSignal.User.addAlias("external_id", externalID);
+ OneSignal.push(function() {
+  OneSignal.setExternalUserId("externalID");
+});
 
 							document.getElementById("success-display").textContent = "Done! You can now close this page.";
 							document.getElementById("success-display").style.display = "block";
