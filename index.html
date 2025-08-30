@@ -3,42 +3,98 @@
 	<head>
 		<meta charset="UTF-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Document</title>
+		<title>OneSignal External ID Setup</title>
 		<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
 		<script>
 			window.OneSignalDeferred = window.OneSignalDeferred || [];
 			OneSignalDeferred.push(async function (OneSignal) {
 				const urlParams = new URLSearchParams(window.location.search);
 				const appId = urlParams.get("appId");
+				const externalID = urlParams.get("externalID");
+				
+				if (!appId) {
+					showError("Missing appId parameter in URL");
+					return;
+				}
+				
+				if (!externalID) {
+					showError("Missing externalID parameter in URL");
+					return;
+				}
 
-				await OneSignal.init({
-					appId: appId,
-				});
-
-				OneSignal.User.PushSubscription.addEventListener("change", (event) => {
-					if (event.current.optedIn) {
-						const urlParams = new URLSearchParams(window.location.search);
-						const externalID = urlParams.get("externalID");
-
-						if (externalID) {
-							OneSignal.User.addAlias("external_id", externalID);
- OneSignal.push(function() {
-  OneSignal.setExternalUserId("externalID");
-});
-
-							document.getElementById("success-display").textContent = "Done! You can now close this page.";
-							document.getElementById("success-display").style.display = "block";
-
-							document.querySelector(".onesignal-customlink-container").style.display = "none";
+				try {
+					await OneSignal.init({
+						appId: appId,
+					});
+					
+					// Set external_id immediately after initialization
+					await OneSignal.login(externalID);
+					console.log("External ID set successfully:", externalID);
+					
+					// Also add as alias for backward compatibility
+					OneSignal.User.addAlias("external_id", externalID);
+					
+					// Listen for push subscription changes
+					OneSignal.User.PushSubscription.addEventListener("change", (event) => {
+						console.log("Push subscription changed:", event);
+						
+						if (event.current.optedIn) {
+							showSuccess("Done! Push notifications are enabled and external ID is set. You can now close this page.");
+						}
+					});
+					
+					// Check if user is already subscribed
+					const isPushSupported = OneSignal.Notifications.isPushSupported();
+					const permission = await OneSignal.Notifications.getPermissionStatus();
+					
+					if (!isPushSupported) {
+						showError("Push notifications are not supported on this device/browser");
+						return;
+					}
+					
+					if (permission === "granted") {
+						const isOptedIn = await OneSignal.User.PushSubscription.getOptedIn();
+						if (isOptedIn) {
+							showSuccess("Done! Push notifications are already enabled and external ID is set. You can now close this page.");
 						}
 					}
-				});
+					
+				} catch (error) {
+					console.error("OneSignal initialization error:", error);
+					showError("Failed to initialize OneSignal: " + error.message);
+				}
 			});
+			
+			function showSuccess(message) {
+				const successElement = document.getElementById("success-display");
+				successElement.textContent = message;
+				successElement.style.display = "block";
+				
+				// Hide the OneSignal container
+				const container = document.querySelector(".onesignal-customlink-container");
+				if (container) {
+					container.style.display = "none";
+				}
+			}
+			
+			function showError(message) {
+				const errorElement = document.getElementById("error-display");
+				errorElement.textContent = message;
+				errorElement.style.display = "block";
+				console.error(message);
+			}
 		</script>
 	</head>
 	<body>
-		<div class="onesignal-customlink-container"></div>
-
-		<div id="success-display" style="display: none; margin-top: 20px; padding: 10px; background: #e8f5e8; border: 1px solid #4caf50; border-radius: 4px"></div>
+		<div style="padding: 20px; font-family: Arial, sans-serif;">
+			<h2>Setting up Push Notifications</h2>
+			<p>Please allow push notifications when prompted to complete the setup.</p>
+			
+			<div class="onesignal-customlink-container"></div>
+			
+			<div id="success-display" style="display: none; margin-top: 20px; padding: 15px; background: #e8f5e8; border: 1px solid #4caf50; border-radius: 4px; color: #2e7d2e; font-weight: bold;"></div>
+			
+			<div id="error-display" style="display: none; margin-top: 20px; padding: 15px; background: #ffeaea; border: 1px solid #f44336; border-radius: 4px; color: #c62828; font-weight: bold;"></div>
+		</div>
 	</body>
 </html>
