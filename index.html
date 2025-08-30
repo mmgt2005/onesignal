@@ -43,21 +43,31 @@
 							console.log("User opted in, setting external ID as tag:", externalID);
 							
 							try {
-								// Using only tag method
-								OneSignal.User.addTag("external_user_id", externalID);
+								// Use login method for external_id (this is the correct way)
+								await OneSignal.login(externalID);
+								console.log("OneSignal.login() called with external_id:", externalID);
+								
+								// Also add as a tag for additional targeting
+								OneSignal.User.addTags({ "external_user_id": externalID });
 								console.log("Tag 'external_user_id' added with value:", externalID);
 								
 								// Wait a moment and verify
 								setTimeout(async () => {
+									const externalId = OneSignal.User.externalId;
 									const tags = OneSignal.User.getTags();
+									console.log("Current external_id:", externalId);
 									console.log("Current tags:", tags);
 									
-									showSuccess("Done! Push notifications are enabled and external ID tag is set. You can now close this page.");
+									if (externalId === externalID) {
+										showSuccess("Done! Push notifications are enabled and external ID is set. You can now close this page.");
+									} else {
+										showError("External ID may not have been set correctly. Check console for details.");
+									}
 								}, 2000);
 								
 							} catch (error) {
-								console.error("Error setting external ID tag:", error);
-								showError("Failed to set external ID tag: " + error.message);
+								console.error("Error setting external ID:", error);
+								showError("Failed to set external ID: " + error.message);
 							}
 						}
 					});
@@ -78,19 +88,28 @@
 						console.log("User already opted in, setting external ID tag immediately");
 						
 						try {
-							OneSignal.User.addTag("external_user_id", externalID);
+							await OneSignal.login(externalID);
+							console.log("OneSignal.login() called with external_id:", externalID);
+							
+							OneSignal.User.addTags({ "external_user_id": externalID });
 							console.log("Tag 'external_user_id' added with value:", externalID);
 							
 							setTimeout(() => {
+								const externalId = OneSignal.User.externalId;
 								const tags = OneSignal.User.getTags();
+								console.log("Current external_id:", externalId);
 								console.log("Current tags:", tags);
 								
-								showSuccess("Done! Push notifications are already enabled and external ID tag is set. You can now close this page.");
+								if (externalId === externalID) {
+									showSuccess("Done! Push notifications are already enabled and external ID is set. You can now close this page.");
+								} else {
+									showError("External ID may not have been set correctly. Check console for details.");
+								}
 							}, 1000);
 							
 						} catch (error) {
-							console.error("Error setting external ID tag for existing subscription:", error);
-							showError("Failed to set external ID tag: " + error.message);
+							console.error("Error setting external ID for existing subscription:", error);
+							showError("Failed to set external ID: " + error.message);
 						}
 					}
 					
