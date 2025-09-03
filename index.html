@@ -1,54 +1,87 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Subscribe to Notifications</title>
-  <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async></script>
-  <style>
-    body { font-family: sans-serif; text-align: center; margin-top: 50px; }
-    button { padding: 12px 20px; font-size: 16px; cursor: pointer; }
-  </style>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>OneSignal External ID Setup</title>
+	<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+	<style>
+		#success-display {
+			display: none;
+			margin-top: 20px;
+			padding: 10px;
+			background: #e8f5e8;
+			border: 1px solid #4caf50;
+			border-radius: 4px;
+			opacity: 1;
+			transition: opacity 0.5s ease;
+		}
+	</style>
+	<script>
+		window.OneSignalDeferred = window.OneSignalDeferred || [];
+		OneSignalDeferred.push(async function (OneSignal) {
+			const urlParams = new URLSearchParams(window.location.search);
+			const appId = urlParams.get("appId");
+			const externalID = urlParams.get("externalID");
+			const redirectUrl = urlParams.get("redirectUrl"); // Optional redirect after success
+
+			await OneSignal.init({
+				appId: appId,
+			});
+
+			const successDisplay = document.getElementById("success-display");
+			const subscribeBtn = document.getElementById("subscribe-btn");
+			const container = document.querySelector(".onesignal-customlink-container");
+
+			// Function to set external ID and show success message
+			async function setExternalID() {
+				if (externalID) {
+					await OneSignal.User.setExternalId(externalID);
+
+					successDisplay.textContent = "Done! Redirecting...";
+					successDisplay.style.display = "block";
+					container.style.display = "none";
+					subscribeBtn.style.display = "none";
+
+					// Fade out and redirect
+					setTimeout(() => {
+						successDisplay.style.opacity = 0;
+						setTimeout(() => {
+							if (redirectUrl) {
+								window.location.href = redirectUrl;
+							} else {
+								successDisplay.style.display = "none";
+							}
+						}, 500); // Wait for fade-out to complete
+					}, 1500); // Show message for 1.5s before fading
+				}
+			}
+
+			// Check if already subscribed
+			const subscription = await OneSignal.User.PushSubscription.get();
+			if (subscription.optedIn) {
+				await setExternalID();
+			} else {
+				// Show subscribe button for first-time users
+				subscribeBtn.style.display = "inline-block";
+				subscribeBtn.addEventListener("click", async () => {
+					await OneSignal.User.pushSubscription.request(); // Request subscription
+					const updatedSub = await OneSignal.User.PushSubscription.get();
+					if (updatedSub.optedIn) {
+						await setExternalID();
+					}
+				});
+			}
+		});
+	</script>
 </head>
 <body>
-  <h2>Subscribe to Notifications</h2>
-  <p>Click below to subscribe. You may need to allow notifications in your browser.</p>
-  <button id="subscribeBtn">Subscribe</button>
+	<div class="onesignal-customlink-container">
+		<button id="subscribe-btn" style="display: none; padding: 10px 20px; background: #4caf50; color: #fff; border: none; border-radius: 4px; cursor: pointer;">
+			Subscribe
+		</button>
+	</div>
 
-  <script>
-    // Get URL parameter (external ID)
-    function getParam(name) {
-      const url = new URL(window.location.href);
-      return url.searchParams.get(name);
-    }
-
-    window.OneSignal = window.OneSignal || [];
-    OneSignal.push(function() {
-      OneSignal.init({
-        appId: "2ed82aa8-d9e3-4a82-95c0-4edd3bb234b4",  // Replace with your OneSignal App ID
-        notifyButton: { enable: false }
-      });
-
-      // Automatically set external ID from URL
-      const externalId = getParam("external_id");
-      if (externalId) {
-        OneSignal.setExternalUserId(externalId).then(() => {
-          console.log("External ID set:", externalId);
-        });
-      } else {
-        console.warn("No external_id found in URL");
-      }
-
-      // Subscribe button
-      document.getElementById("subscribeBtn").addEventListener("click", async () => {
-        try {
-          await OneSignal.registerForPushNotifications();
-          alert("Subscription successful!");
-        } catch (err) {
-          console.error("Subscription failed:", err);
-          alert("Subscription failed. Check console for errors.");
-        }
-      });
-    });
-  </script>
+	<div id="success-display"></div>
 </body>
 </html>
