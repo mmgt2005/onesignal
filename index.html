@@ -14,9 +14,20 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
+            padding: 20px;
         }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-success { background-color: #10b981; }
+        .status-error { background-color: #ef4444; }
+        .status-warning { background-color: #f59e0b; }
     </style>
 </head>
 <body class="bg-gray-100">
@@ -24,14 +35,42 @@
     <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-md mx-4 text-center">
         <h1 class="text-3xl font-bold text-gray-800 mb-2">Push Notifications</h1>
         <p class="text-gray-600 mb-6">
-            Click the button below to subscribe to push notifications.
+            Subscribe to push notifications with automatic user tagging.
         </p>
         
-        <button id="subscribeButton" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
-            Subscribe
+        <!-- Environment Status -->
+        <div id="environmentStatus" class="mb-4 p-3 rounded-md bg-gray-50 text-left text-sm">
+            <div class="font-semibold mb-2">Environment Status:</div>
+            <div id="httpsStatus" class="mb-1">
+                <span class="status-indicator status-warning"></span>
+                <span>Checking HTTPS...</span>
+            </div>
+            <div id="serviceWorkerStatus" class="mb-1">
+                <span class="status-indicator status-warning"></span>
+                <span>Checking Service Worker...</span>
+            </div>
+            <div id="oneSignalStatus">
+                <span class="status-indicator status-warning"></span>
+                <span>Initializing OneSignal...</span>
+            </div>
+        </div>
+
+        <button id="subscribeButton" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+            <span id="buttonText">Initializing...</span>
         </button>
 
         <div id="messageBox" class="mt-6 p-4 rounded-md text-sm text-center hidden"></div>
+
+        <!-- Setup Instructions -->
+        <div id="setupInstructions" class="mt-6 p-4 bg-blue-50 rounded-md text-left text-sm">
+            <div class="font-semibold mb-2 text-blue-800">Setup Requirements:</div>
+            <ul class="text-blue-700 space-y-1">
+                <li>• Serve over HTTPS (or localhost)</li>
+                <li>• Include OneSignalSDKWorker.js in root directory</li>
+                <li>• Configure valid OneSignal App ID</li>
+                <li>• Test with ?userId=123 parameter</li>
+            </ul>
+        </div>
     </div>
 
     <!-- OneSignal SDK -->
@@ -41,68 +80,208 @@
         window.addEventListener('load', function() {
             // Replace with your actual OneSignal App ID
             const ONE_SIGNAL_APP_ID = "2ed82aa8-d9e3-4a82-95c0-4edd3bb234b4";
+            
+            // DOM elements
             const messageBox = document.getElementById('messageBox');
             const subscribeButton = document.getElementById('subscribeButton');
+            const buttonText = document.getElementById('buttonText');
+            const httpsStatus = document.getElementById('httpsStatus');
+            const serviceWorkerStatus = document.getElementById('serviceWorkerStatus');
+            const oneSignalStatus = document.getElementById('oneSignalStatus');
+
+            // Status tracking
+            let environmentReady = false;
+            let oneSignalReady = false;
 
             // Show a message in the UI
             function showMessage(message, type = 'success') {
                 messageBox.textContent = message;
-                messageBox.classList.remove('hidden', 'bg-red-100', 'text-red-700', 'bg-green-100', 'text-green-700');
-                if (type === 'success') {
-                    messageBox.classList.add('bg-green-100', 'text-green-700');
-                } else if (type === 'error') {
-                    messageBox.classList.add('bg-red-100', 'text-red-700');
+                messageBox.classList.remove('hidden', 'bg-red-100', 'text-red-700', 'bg-green-100', 'text-green-700', 'bg-yellow-100', 'text-yellow-700');
+                
+                switch(type) {
+                    case 'success':
+                        messageBox.classList.add('bg-green-100', 'text-green-700');
+                        break;
+                    case 'error':
+                        messageBox.classList.add('bg-red-100', 'text-red-700');
+                        break;
+                    case 'warning':
+                        messageBox.classList.add('bg-yellow-100', 'text-yellow-700');
+                        break;
                 }
-                messageBox.classList.add('block');
+                messageBox.classList.remove('hidden');
             }
 
-            // Acknowledge the page loaded and explain the OneSignal limitation in this environment
-            showMessage('The page is loaded, but OneSignal functionality requires a live web server to work.', 'error');
+            // Update status indicator
+            function updateStatus(element, status, message) {
+                const indicator = element.querySelector('.status-indicator');
+                const textSpan = element.querySelector('span:last-child');
+                
+                indicator.className = `status-indicator status-${status}`;
+                textSpan.textContent = message;
+            }
 
-            // Init OneSignal
-            window.OneSignal = window.OneSignal || [];
-            OneSignal.push(function() {
-                OneSignal.init({
-                    appId: ONE_SIGNAL_APP_ID,
-                    serviceWorkerPath: 'OneSignalSDKWorker.js',
-                    subdomainName: null,
-                    allowLocalhostAsSecureOrigin: true,
-                });
+            // Check environment requirements
+            function checkEnvironment() {
+                // Check HTTPS
+                const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+                updateStatus(
+                    httpsStatus, 
+                    isSecure ? 'success' : 'error',
+                    isSecure ? 'HTTPS/Localhost ✓' : 'HTTPS Required ✗'
+                );
 
-                OneSignal.on('initialized', function() {
-                    console.log('OneSignal initialized.');
-                    showMessage('OneSignal is ready! Click "Subscribe" to begin.', 'success');
-                });
+                // Check Service Worker support
+                const hasServiceWorker = 'serviceWorker' in navigator;
+                updateStatus(
+                    serviceWorkerStatus,
+                    hasServiceWorker ? 'success' : 'error',
+                    hasServiceWorker ? 'Service Worker Support ✓' : 'Service Worker Not Supported ✗'
+                );
 
-                OneSignal.on('subscriptionChange', function(isSubscribed) {
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const userIdFromUrl = urlParams.get('userId');
+                environmentReady = isSecure && hasServiceWorker;
+                
+                if (!environmentReady) {
+                    showMessage('Environment requirements not met. Please check status above.', 'error');
+                    return false;
+                }
+                return true;
+            }
 
-                    if (isSubscribed && userIdFromUrl) {
-                        OneSignal.setTags({ 'user_id': userIdFromUrl })
-                            .then(() => {
-                                showMessage(`Successfully subscribed and tagged with user ID: "${userIdFromUrl}"!`, 'success');
-                            })
-                            .catch(error => {
-                                console.error('Failed to set tags:', error);
-                                showMessage(`Error setting tags: ${error.message}`, 'error');
-                            });
+            // Check if service worker file exists
+            async function checkServiceWorkerFile() {
+                try {
+                    const response = await fetch('/OneSignalSDKWorker.js', { method: 'HEAD' });
+                    if (response.ok) {
+                        updateStatus(serviceWorkerStatus, 'success', 'Service Worker File Found ✓');
+                        return true;
+                    } else {
+                        updateStatus(serviceWorkerStatus, 'error', 'OneSignalSDKWorker.js Missing ✗');
+                        return false;
                     }
-                });
-            });
+                } catch (error) {
+                    updateStatus(serviceWorkerStatus, 'error', 'Service Worker File Check Failed ✗');
+                    return false;
+                }
+            }
 
-            // Handle button click
+            // Initialize OneSignal with error handling
+            async function initializeOneSignal() {
+                if (!checkEnvironment()) {
+                    return;
+                }
+
+                // Check for service worker file
+                const hasWorkerFile = await checkServiceWorkerFile();
+                if (!hasWorkerFile) {
+                    showMessage('OneSignalSDKWorker.js file is missing. Download it from your OneSignal dashboard.', 'error');
+                }
+
+                try {
+                    window.OneSignal = window.OneSignal || [];
+                    
+                    OneSignal.push(function() {
+                        OneSignal.init({
+                            appId: ONE_SIGNAL_APP_ID,
+                            serviceWorkerPath: '/OneSignalSDKWorker.js',
+                            subdomainName: null,
+                            allowLocalhostAsSecureOrigin: true,
+                            notifyButton: {
+                                enable: false
+                            }
+                        });
+
+                        OneSignal.on('initialized', function() {
+                            console.log('OneSignal initialized successfully');
+                            updateStatus(oneSignalStatus, 'success', 'OneSignal Ready ✓');
+                            oneSignalReady = true;
+                            
+                            subscribeButton.disabled = false;
+                            buttonText.textContent = 'Subscribe to Notifications';
+                            
+                            // Check if already subscribed
+                            OneSignal.isPushNotificationsEnabled().then(function(isEnabled) {
+                                if (isEnabled) {
+                                    buttonText.textContent = 'Already Subscribed ✓';
+                                    showMessage('You are already subscribed to push notifications!', 'success');
+                                }
+                            });
+                        });
+
+                        OneSignal.on('subscriptionChange', function(isSubscribed) {
+                            console.log('Subscription changed:', isSubscribed);
+                            
+                            if (isSubscribed) {
+                                const urlParams = new URLSearchParams(window.location.search);
+                                const userIdFromUrl = urlParams.get('userId');
+
+                                buttonText.textContent = 'Subscribed ✓';
+                                
+                                if (userIdFromUrl) {
+                                    // Set user tag
+                                    OneSignal.setTags({ 'user_id': userIdFromUrl })
+                                        .then(() => {
+                                            showMessage(`Successfully subscribed and tagged with user ID: "${userIdFromUrl}"!`, 'success');
+                                        })
+                                        .catch(error => {
+                                            console.error('Failed to set tags:', error);
+                                            showMessage(`Subscribed but failed to set tags: ${error.message}`, 'warning');
+                                        });
+                                } else {
+                                    showMessage('Successfully subscribed! Add ?userId=YOUR_ID to URL for user tagging.', 'success');
+                                }
+                            }
+                        });
+
+                        OneSignal.on('permissionPromptDisplay', function() {
+                            console.log('Permission prompt displayed');
+                            buttonText.textContent = 'Allow Notifications...';
+                        });
+
+                        OneSignal.on('notificationPermissionChange', function(permission) {
+                            console.log('Permission changed:', permission);
+                            if (permission.to === 'denied') {
+                                showMessage('Notifications blocked. Please enable in browser settings.', 'error');
+                                buttonText.textContent = 'Notifications Blocked';
+                            }
+                        });
+                    });
+
+                } catch (error) {
+                    console.error('OneSignal initialization error:', error);
+                    showMessage(`OneSignal initialization failed: ${error.message}`, 'error');
+                }
+            }
+
+            // Handle subscribe button click
             subscribeButton.addEventListener('click', function() {
-                 OneSignal.push(function() {
-                    OneSignal.isPushNotificationsEnabled(function(isEnabled) {
+                if (!oneSignalReady) {
+                    showMessage('OneSignal is not ready yet. Please wait...', 'warning');
+                    return;
+                }
+
+                OneSignal.push(function() {
+                    OneSignal.isPushNotificationsEnabled().then(function(isEnabled) {
                         if (isEnabled) {
-                            showMessage('You are already subscribed.', 'success');
+                            showMessage('You are already subscribed to push notifications!', 'success');
                         } else {
-                            OneSignal.showSlidedownPrompt();
+                            // Show the subscription prompt
+                            OneSignal.showSlidedownPrompt().then(function() {
+                                console.log('Slidedown prompt shown');
+                            }).catch(function(error) {
+                                console.error('Error showing prompt:', error);
+                                showMessage('Failed to show notification prompt. Please check browser settings.', 'error');
+                            });
                         }
+                    }).catch(function(error) {
+                        console.error('Error checking subscription status:', error);
+                        showMessage('Error checking subscription status.', 'error');
                     });
                 });
             });
+
+            // Start initialization
+            initializeOneSignal();
         });
     </script>
 </body>
