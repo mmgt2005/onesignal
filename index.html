@@ -1,52 +1,54 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Subscribe and Tag with OneSignal</title>
-    <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
-    <script>
-        window.OneSignalDeferred = window.OneSignalDeferred || [];
-        const ONE_SIGNAL_APP_ID = "YOUR-ONESIGNAL-APP-ID"; // Replace with your actual app ID
-
-        OneSignalDeferred.push(async function(OneSignal) {
-            OneSignal.init({
-                appId: ONE_SIGNAL_APP_ID,
-                serviceWorkerPath: '/OneSignalSDKWorker.js',
-                subdomainName: null,
-                notifyButton: {
-                    enable: false
-                }
-            });
-
-            // Extract userId from URL parameter (?userId=123)
-            const urlParams = new URLSearchParams(window.location.search);
-            const userId = urlParams.get('userId');
-
-            if (userId) {
-                // Set external user ID
-                await OneSignal.login(userId);
-                console.log("User ID set:", userId);
-            } else {
-                console.log("No userId parameter provided in the URL.");
-            }
-        });
-    </script>
+  <meta charset="UTF-8">
+  <title>Subscribe to Notifications</title>
+  <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async></script>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin-top: 50px; }
+    button { padding: 12px 20px; font-size: 16px; cursor: pointer; }
+  </style>
 </head>
 <body>
-    <h1>Subscribe to Notifications</h1>
-    <button id="subscribe-btn">Subscribe</button>
+  <h2>Subscribe to Notifications</h2>
+  <p>Click below to subscribe. You may need to allow notifications in your browser.</p>
+  <button id="subscribeBtn">Subscribe</button>
 
-    <script>
-        document.getElementById('subscribe-btn').addEventListener('click', async () => {
-            OneSignalDeferred.push(async function(OneSignal) {
-                try {
-                    await OneSignal.Slidedown.promptPush();
-                    console.log("Subscription flow triggered.");
-                } catch (error) {
-                    console.error("Error triggering subscription:", error);
-                }
-            });
+  <script>
+    // Get URL parameter (external ID)
+    function getParam(name) {
+      const url = new URL(window.location.href);
+      return url.searchParams.get(name);
+    }
+
+    window.OneSignal = window.OneSignal || [];
+    OneSignal.push(function() {
+      OneSignal.init({
+        appId: "2ed82aa8-d9e3-4a82-95c0-4edd3bb234b4",  // Replace with your OneSignal App ID
+        notifyButton: { enable: false }
+      });
+
+      // Automatically set external ID from URL
+      const externalId = getParam("external_id");
+      if (externalId) {
+        OneSignal.setExternalUserId(externalId).then(() => {
+          console.log("External ID set:", externalId);
         });
-    </script>
+      } else {
+        console.warn("No external_id found in URL");
+      }
+
+      // Subscribe button
+      document.getElementById("subscribeBtn").addEventListener("click", async () => {
+        try {
+          await OneSignal.registerForPushNotifications();
+          alert("Subscription successful!");
+        } catch (err) {
+          console.error("Subscription failed:", err);
+          alert("Subscription failed. Check console for errors.");
+        }
+      });
+    });
+  </script>
 </body>
 </html>
