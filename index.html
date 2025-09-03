@@ -53,7 +53,11 @@
                 } else if (type === 'error') {
                     messageBox.classList.add('bg-red-100', 'text-red-700');
                 }
+                messageBox.classList.add('block');
             }
+
+            // Acknowledge the page loaded and explain the OneSignal limitation in this environment
+            showMessage('The page is loaded, but OneSignal functionality requires a live web server to work.', 'error');
 
             // Init OneSignal
             window.OneSignal = window.OneSignal || [];
@@ -67,7 +71,7 @@
 
                 OneSignal.on('initialized', function() {
                     console.log('OneSignal initialized.');
-                    showMessage('OneSignal is ready! Click "Subscribe" to begin.');
+                    showMessage('OneSignal is ready! Click "Subscribe" to begin.', 'success');
                 });
 
                 OneSignal.on('subscriptionChange', function(isSubscribed) {
