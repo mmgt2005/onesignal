@@ -1,6 +1,0 @@
-# Always serve the OneSignal service worker directly
-/OneSignalSDKWorker.js   /OneSignalSDKWorker.js   200
-
-# Optional: if you add React/Vue/SPA-style routing later,
-# make all other paths fall back to index.html
-/*   /index.html   200
