@@ -29,7 +29,6 @@
     <div class="bg-white rounded-xl shadow-lg p-8 w-full max-w-lg space-y-6">
         <h1 class="text-2xl font-bold text-center text-gray-800">Push Notification Subscription</h1>
         
-        <!-- Debug information -->
         <div id="debug-info" class="debug-info">
             <div><strong>Debug Information:</strong></div>
             <div id="debug-content">Loading...</div>
@@ -45,20 +44,10 @@
                 <input type="email" id="email" name="email" required class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="you@example.com">
             </div>
             
-            <!-- Native Browser Push Notifications -->
-            <button type="button" id="native-push-btn" class="w-full bg-blue-600 text-white font-medium py-3 rounded-lg shadow-md hover:bg-blue-700 transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
-                Subscribe with Native Push Notifications
-            </button>
-            
-            <!-- OneSignal Option -->
             <button type="button" id="onesignal-btn" class="w-full bg-green-600 text-white font-medium py-3 rounded-lg shadow-md hover:bg-green-700 transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50">
                 Try OneSignal Method
             </button>
             
-            <!-- Test Webhook -->
-            <button type="button" id="test-webhook-btn" class="w-full bg-gray-600 text-white font-medium py-2 rounded-lg shadow-md hover:bg-gray-700 transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50">
-                Test Webhook Only
-            </button>
         </form>
 
         <div id="message-box" class="hidden text-center mt-4">
@@ -76,7 +65,10 @@
             console.log('[DEBUG]', message);
             const debugContent = document.getElementById('debug-content');
             if (debugContent) {
-                debugContent.innerHTML += '<div>' + new Date().toLocaleTimeString() + ': ' + message + '</div>';
+                // Using textContent for security against XSS attacks
+                const logEntry = document.createElement('div');
+                logEntry.textContent = new Date().toLocaleTimeString() + ': ' + message;
+                debugContent.appendChild(logEntry);
                 debugContent.scrollTop = debugContent.scrollHeight;
             }
         }
@@ -129,213 +121,6 @@
                     messageBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }
 
-                // Native browser push notifications
-                document.getElementById('native-push-btn').addEventListener('click', function() {
-                    const email = emailInput.value;
-                    if (!email) {
-                        showMessage('Please enter an email address');
-                        return;
-                    }
-                    
-                    debugLog('Starting native push notification subscription');
-                    loadingStatus.style.display = 'block';
-                    loadingStatus.textContent = 'Setting up native push notifications...';
-                    
-                    // Check if browser supports notifications
-                    if (!('Notification' in window)) {
-                        debugLog('Browser does not support notifications');
-                        showMessage('Your browser does not support push notifications');
-                        loadingStatus.style.display = 'none';
-                        return;
-                    }
-
-                    if (!('serviceWorker' in navigator)) {
-                        debugLog('Browser does not support service workers');
-                        showMessage('Your browser does not support service workers (required for push notifications)');
-                        loadingStatus.style.display = 'none';
-                        return;
-                    }
-
-                    if (!('PushManager' in window)) {
-                        debugLog('Browser does not support Push API');
-                        showMessage('Your browser does not support the Push API');
-                        loadingStatus.style.display = 'none';
-                        return;
-                    }
-
-                    debugLog('Browser supports all required APIs');
-                    
-                    setupNativePushNotifications(email, webhookUrl, showMessage, loadingStatus);
-                });
-
-                function setupNativePushNotifications(email, webhookUrl, showMessage, loadingStatus) {
-                    debugLog('Setting up native push notifications');
-                    
-                    // Create a minimal service worker inline
-                    const swCode = `
-                        self.addEventListener('push', function(event) {
-                            const options = {
-                                body: event.data ? event.data.text() : 'You have a new notification',
-                                icon: '/icon.png',
-                                badge: '/badge.png'
-                            };
-                            event.waitUntil(
-                                self.registration.showNotification('Push Notification', options)
-                            );
-                        });
-                        
-                        self.addEventListener('notificationclick', function(event) {
-                            event.notification.close();
-                            event.waitUntil(
-                                clients.openWindow('/')
-                            );
-                        });
-                    `;
-                    
-                    const blob = new Blob([swCode], { type: 'application/javascript' });
-                    const swUrl = URL.createObjectURL(blob);
-                    
-                    debugLog('Registering service worker');
-                    loadingStatus.textContent = 'Registering service worker...';
-                    
-                    navigator.serviceWorker.register(swUrl)
-                        .then(function(registration) {
-                            debugLog('Service worker registered successfully');
-                            loadingStatus.textContent = 'Requesting notification permission...';
-                            
-                            return Notification.requestPermission();
-                        })
-                        .then(function(permission) {
-                            debugLog('Notification permission: ' + permission);
-                            
-                            if (permission !== 'granted') {
-                                throw new Error('Notification permission denied');
-                            }
-                            
-                            loadingStatus.textContent = 'Getting push subscription...';
-                            
-                            return navigator.serviceWorker.ready;
-                        })
-                        .then(function(registration) {
-                            debugLog('Service worker ready, getting push subscription');
-                            
-                            // You would normally use your own VAPID keys here
-                            // For demo purposes, we'll generate a subscription without VAPID
-                            return registration.pushManager.getSubscription();
-                        })
-                        .then(function(subscription) {
-                            if (subscription) {
-                                debugLog('Existing subscription found');
-                                handlePushSubscription(subscription, email, webhookUrl, showMessage, loadingStatus);
-                            } else {
-                                debugLog('No existing subscription, creating new one');
-                                loadingStatus.textContent = 'Creating push subscription...';
-                                
-                                // Note: This will fail without VAPID keys, but we'll catch it
-                                return navigator.serviceWorker.ready.then(function(registration) {
-                                    return registration.pushManager.subscribe({
-                                        userVisibleOnly: true,
-                                        // In production, you'd add your VAPID public key here:
-                                        // applicationServerKey: urlBase64ToUint8Array('YOUR_VAPID_PUBLIC_KEY')
-                                    });
-                                });
-                            }
-                        })
-                        .then(function(subscription) {
-                            if (subscription) {
-                                handlePushSubscription(subscription, email, webhookUrl, showMessage, loadingStatus);
-                            }
-                        })
-                        .catch(function(error) {
-                            debugLog('Native push setup error: ' + error.message);
-                            loadingStatus.style.display = 'none';
-                            
-                            if (error.message.includes('VAPID') || error.message.includes('applicationServerKey')) {
-                                debugLog('VAPID keys required - falling back to permission-only mode');
-                                showMessage('Browser requires VAPID keys for real push tokens. Using permission-based token instead.', 'success');
-                                
-                                // Generate a permission-based token
-                                const permissionToken = 'permission-granted-' + Date.now() + '-' + btoa(navigator.userAgent.slice(-10));
-                                debugLog('Generated permission token: ' + permissionToken);
-                                sendDataToWebhook(email, permissionToken, webhookUrl);
-                            } else {
-                                showMessage('Native push setup failed: ' + error.message);
-                            }
-                        });
-                }
-
-                function handlePushSubscription(subscription, email, webhookUrl, showMessage, loadingStatus) {
-                    debugLog('Push subscription created successfully');
-                    loadingStatus.style.display = 'none';
-                    
-                    // Extract the real push token from the subscription
-                    const subscriptionJson = subscription.toJSON();
-                    const pushToken = subscriptionJson.keys.p256dh; // This is a real push token component
-                    
-                    debugLog('Real push subscription details:');
-                    debugLog('- Endpoint: ' + subscriptionJson.endpoint);
-                    debugLog('- p256dh key: ' + subscriptionJson.keys.p256dh);
-                    debugLog('- auth key: ' + subscriptionJson.keys.auth);
-                    
-                    showMessage('Native push notifications enabled with real token!', 'success');
-                    
-                    // Send the full subscription object to webhook
-                    sendPushSubscriptionToWebhook(email, subscriptionJson, webhookUrl);
-                }
-
-                function sendPushSubscriptionToWebhook(email, subscription, webhookUrl) {
-                    debugLog('=== WEBHOOK CALL START (Real Push Subscription) ===');
-                    debugLog('Webhook URL: ' + webhookUrl);
-                    debugLog('Email: ' + email);
-                    debugLog('Subscription: ' + JSON.stringify(subscription, null, 2));
-                    
-                    const payload = {
-                        email: email,
-                        push_subscription: subscription, // Full subscription object
-                        push_token: subscription.keys.p256dh, // Extract token for compatibility
-                        timestamp: new Date().toISOString(),
-                        source: 'native_real'
-                    };
-                    
-                    debugLog('Payload: ' + JSON.stringify(payload, null, 2));
-                    
-                    fetch(webhookUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Accept': 'application/json'
-                        },
-                        body: JSON.stringify(payload)
-                    })
-                    .then(response => {
-                        debugLog('Webhook response received');
-                        debugLog('Status: ' + response.status + ' ' + response.statusText);
-                        
-                        if (response.ok) {
-                            debugLog("✅ Real push subscription sent to webhook successfully!");
-                            document.getElementById('message-text').textContent = "Real push token sent to webhook successfully!";
-                            document.getElementById('message-text').className = 'text-green-600 font-medium';
-                        } else {
-                            debugLog("❌ Webhook call failed with status: " + response.status);
-                            document.getElementById('message-text').textContent = "Webhook call failed with status: " + response.status;
-                            document.getElementById('message-text').className = 'text-red-500 font-medium';
-                        }
-                        
-                        return response.text();
-                    })
-                    .then(responseText => {
-                        debugLog('Response body: ' + responseText);
-                        debugLog('=== WEBHOOK CALL END ===');
-                    })
-                    .catch(error => {
-                        debugLog("❌ Webhook error: " + error.message);
-                        debugLog('=== WEBHOOK CALL END (ERROR) ===');
-                        document.getElementById('message-text').textContent = "Error sending data to webhook: " + error.message;
-                        document.getElementById('message-text').className = 'text-red-500 font-medium';
-                        console.error("Full webhook error:", error);
-                    });
-                }
-
                 // OneSignal method (only load when clicked)
                 document.getElementById('onesignal-btn').addEventListener('click', function() {
                     const email = emailInput.value;
@@ -367,16 +152,6 @@
                     };
                     document.head.appendChild(script);
                 });
-
-                // Test webhook button
-                document.getElementById('test-webhook-btn').addEventListener('click', function() {
-                    const email = emailInput.value || 'test@example.com';
-                    const testToken = 'test-webhook-' + Date.now();
-                    debugLog('Testing webhook directly');
-                    showMessage('Testing webhook...', 'success');
-                    sendDataToWebhook(email, testToken, webhookUrl);
-                });
-
             } catch (error) {
                 debugLog('Error in initializeApp: ' + error.message);
                 console.error('Error in initializeApp:', error);
@@ -390,7 +165,7 @@
             
             let initTimeout = setTimeout(function() {
                 debugLog('OneSignal initialization timed out');
-                showMessage('OneSignal initialization timed out. Try the native push method instead.');
+                showMessage('OneSignal initialization timed out. Try refreshing the page.');
                 loadingStatus.style.display = 'none';
             }, 10000);
 
@@ -466,7 +241,7 @@
                 email: email,
                 push_token: pushToken,
                 timestamp: new Date().toISOString(),
-                source: pushToken.includes('native') ? 'native' : pushToken.includes('test') ? 'test' : 'onesignal'
+                source: 'onesignal'
             };
             
             debugLog('Payload: ' + JSON.stringify(payload, null, 2));
