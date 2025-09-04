@@ -184,6 +184,15 @@
                     }
                 });
 
+                // Add webhook test button handler
+                testWebhookBtn.addEventListener('click', function() {
+                    const email = emailInput.value || 'test@example.com';
+                    const testToken = 'test-webhook-' + Date.now();
+                    debugLog('Testing webhook directly');
+                    showMessage('Testing webhook...', 'success');
+                    sendDataToWebhook(email, testToken, webhookUrl);
+                });
+
             } catch (error) {
                 debugLog('Error in initializeApp: ' + error.message);
                 console.error('Error in initializeApp:', error);
