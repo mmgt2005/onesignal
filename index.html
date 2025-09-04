@@ -11,12 +11,28 @@
             font-family: 'Inter', sans-serif;
             background-color: #f3f4f6;
         }
+        .debug-info {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 16px 0;
+            font-family: monospace;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
 
     <div class="bg-white rounded-xl shadow-lg p-8 w-full max-w-lg space-y-6">
         <h1 class="text-2xl font-bold text-center text-gray-800">Push Notification Subscription</h1>
+        
+        <!-- Debug information -->
+        <div id="debug-info" class="debug-info">
+            <div><strong>Debug Information:</strong></div>
+            <div id="debug-content">Loading...</div>
+        </div>
+        
         <p class="text-gray-600 text-center">
             Click the button below to subscribe to push notifications.
         </p>
@@ -34,114 +50,220 @@
         <div id="message-box" class="hidden text-center mt-4">
             <p id="message-text" class="text-red-500 font-medium"></p>
         </div>
+        
+        <div id="loading-status" class="text-center text-gray-500">
+            <p>Loading OneSignal SDK...</p>
+        </div>
     </div>
 
-    <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async></script>
     <script>
-        window.addEventListener('load', function() {
-            // Get URL parameters
-            const urlParams = new URLSearchParams(window.location.search);
-            const emailFromUrl = urlParams.get('email');
-            const appId = urlParams.get('appid');
-            const webhookUrl = urlParams.get('webhook');
-            
-            const subscriptionForm = document.getElementById('subscription-form');
-            const emailInput = document.getElementById('email');
-            const messageBox = document.getElementById('message-box');
-            const messageText = document.getElementById('message-text');
-
-            function showMessage(message, type = 'error') {
-                messageBox.classList.remove('hidden');
-                messageText.textContent = message;
-                if (type === 'success') {
-                    messageText.classList.remove('text-red-500');
-                    messageText.classList.add('text-green-600');
-                } else {
-                    messageText.classList.remove('text-green-600');
-                    messageText.classList.add('text-red-500');
-                }
+        // Debug logging function
+        function debugLog(message) {
+            console.log('[DEBUG]', message);
+            const debugContent = document.getElementById('debug-content');
+            if (debugContent) {
+                debugContent.innerHTML += '<div>' + new Date().toLocaleTimeString() + ': ' + message + '</div>';
             }
+        }
 
-            // Pre-populate email field if available in URL
-            if (emailFromUrl) {
-                emailInput.value = emailFromUrl;
-            }
-
-            // Check if required parameters are missing
-            if (!appId || !webhookUrl) {
-                showMessage("Missing required URL parameters: `appid` and `webhook`.");
-                subscriptionForm.style.display = 'none'; // Hide the form
-                return; // Stop execution
-            }
-
-            // Initialize OneSignal with the App ID from the URL
-            window.OneSignal = window.OneSignal || [];
-            OneSignal.push(function() {
-                OneSignal.init({
-                    appId: appId
-                });
-            });
-
-            // Handle the form submission
-            subscriptionForm.addEventListener('submit', function(event) {
-                event.preventDefault();
-                
-                const email = emailInput.value;
-
-                OneSignal.push(function() {
-                    OneSignal.isPushNotificationsSupported(function(isSupported) {
-                        if (isSupported) {
-                            OneSignal.getUserId(function(userId) {
-                                if (userId) {
-                                    showMessage("You are already subscribed. Sending your info to webhook.", 'success');
-                                    // Send the token and email to your webhook
-                                    sendDataToWebhook(email, userId, webhookUrl);
-                                } else {
-                                    // User is not subscribed, prompt them.
-                                    OneSignal.registerForPushNotifications().then(function() {
-                                        OneSignal.getUserId(function(userId) {
-                                            if (userId) {
-                                                showMessage("Successfully subscribed!", 'success');
-                                                // Once you have the userId (the token), you can send it to your webhook.
-                                                sendDataToWebhook(email, userId, webhookUrl);
-                                            }
-                                        });
-                                    }).catch(function(error) {
-                                        showMessage("Subscription failed: " + error.message);
-                                    });
-                                }
-                            });
-                        } else {
-                            showMessage("Push notifications are not supported in your browser.");
-                        }
-                    });
-                });
-            });
-
-            // This function now accepts the email and token, and uses the webhookUrl from the URL
-            function sendDataToWebhook(email, pushToken) {
-                fetch(webhookUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        email: email,
-                        push_token: pushToken
-                    })
-                })
-                .then(response => {
-                    if (response.ok) {
-                        console.log("Data sent to webhook successfully!");
-                    } else {
-                        console.error("Failed to send data to webhook.");
-                    }
-                })
-                .catch(error => {
-                    console.error("Error sending data to webhook:", error);
-                });
-            }
+        // Initialize immediately when DOM loads
+        document.addEventListener('DOMContentLoaded', function() {
+            debugLog('DOM loaded');
+            initializeApp();
         });
+
+        function initializeApp() {
+            try {
+                // Get URL parameters
+                const urlParams = new URLSearchParams(window.location.search);
+                const emailFromUrl = urlParams.get('email');
+                const appId = urlParams.get('appid');
+                const webhookUrl = urlParams.get('webhook');
+                
+                debugLog('URL params - Email: ' + emailFromUrl + ', AppID: ' + appId + ', Webhook: ' + (webhookUrl ? 'Present' : 'Missing'));
+                
+                const subscriptionForm = document.getElementById('subscription-form');
+                const emailInput = document.getElementById('email');
+                const messageBox = document.getElementById('message-box');
+                const messageText = document.getElementById('message-text');
+                const loadingStatus = document.getElementById('loading-status');
+
+                function showMessage(message, type = 'error') {
+                    debugLog('Showing message: ' + message + ' (type: ' + type + ')');
+                    messageBox.classList.remove('hidden');
+                    messageText.textContent = message;
+                    if (type === 'success') {
+                        messageText.classList.remove('text-red-500');
+                        messageText.classList.add('text-green-600');
+                    } else {
+                        messageText.classList.remove('text-green-600');
+                        messageText.classList.add('text-red-500');
+                    }
+                }
+
+                // Pre-populate email field if available in URL
+                if (emailFromUrl) {
+                    emailInput.value = emailFromUrl;
+                    debugLog('Email pre-populated: ' + emailFromUrl);
+                }
+
+                // Check if required parameters are missing
+                if (!appId || !webhookUrl) {
+                    const missingParams = [];
+                    if (!appId) missingParams.push('appid');
+                    if (!webhookUrl) missingParams.push('webhook');
+                    
+                    showMessage("Missing required URL parameters: " + missingParams.join(', '));
+                    subscriptionForm.style.display = 'none';
+                    loadingStatus.style.display = 'none';
+                    debugLog('Missing parameters, hiding form');
+                    return;
+                }
+
+                // Load OneSignal SDK dynamically and wait for it
+                loadingStatus.textContent = 'Loading OneSignal SDK...';
+                debugLog('Loading OneSignal SDK');
+                
+                const oneSignalScript = document.createElement('script');
+                oneSignalScript.src = 'https://cdn.onesignal.com/sdks/OneSignalSDK.js';
+                oneSignalScript.onload = function() {
+                    debugLog('OneSignal SDK loaded successfully');
+                    initializeOneSignal(appId, webhookUrl, showMessage, loadingStatus);
+                };
+                oneSignalScript.onerror = function() {
+                    debugLog('Failed to load OneSignal SDK');
+                    showMessage('Failed to load OneSignal SDK. Please check your internet connection.');
+                    loadingStatus.style.display = 'none';
+                };
+                document.head.appendChild(oneSignalScript);
+
+                // Set up form submission handler
+                subscriptionForm.addEventListener('submit', function(event) {
+                    event.preventDefault();
+                    debugLog('Form submitted');
+                    
+                    const email = emailInput.value;
+                    debugLog('Email from form: ' + email);
+                    
+                    if (window.OneSignalInitialized) {
+                        handleSubscription(email, webhookUrl, showMessage);
+                    } else {
+                        showMessage('OneSignal is not ready yet. Please wait and try again.');
+                    }
+                });
+
+            } catch (error) {
+                debugLog('Error in initializeApp: ' + error.message);
+                console.error('Error in initializeApp:', error);
+            }
+        }
+
+        function initializeOneSignal(appId, webhookUrl, showMessage, loadingStatus) {
+            try {
+                debugLog('Initializing OneSignal with appId: ' + appId);
+                
+                window.OneSignal = window.OneSignal || [];
+                
+                OneSignal.push(function() {
+                    debugLog('OneSignal push function called');
+                    
+                    OneSignal.init({
+                        appId: appId,
+                        allowLocalhostAsSecureOrigin: true // Allow testing on localhost
+                    });
+                    
+                    debugLog('OneSignal init called');
+                    
+                    // Wait a bit for initialization
+                    setTimeout(function() {
+                        debugLog('OneSignal initialization complete');
+                        loadingStatus.textContent = 'OneSignal loaded successfully!';
+                        setTimeout(() => {
+                            loadingStatus.style.display = 'none';
+                        }, 2000);
+                        window.OneSignalInitialized = true;
+                    }, 1000);
+                });
+                
+            } catch (error) {
+                debugLog('Error initializing OneSignal: ' + error.message);
+                showMessage('Error initializing OneSignal: ' + error.message);
+                loadingStatus.style.display = 'none';
+            }
+        }
+
+        function handleSubscription(email, webhookUrl, showMessage) {
+            debugLog('Handling subscription for email: ' + email);
+            
+            OneSignal.push(function() {
+                debugLog('Checking push notification support');
+                
+                OneSignal.isPushNotificationsSupported(function(isSupported) {
+                    debugLog('Push notifications supported: ' + isSupported);
+                    
+                    if (isSupported) {
+                        OneSignal.getUserId(function(userId) {
+                            debugLog('Current userId: ' + (userId || 'none'));
+                            
+                            if (userId) {
+                                showMessage("You are already subscribed. Sending your info to webhook.", 'success');
+                                sendDataToWebhook(email, userId, webhookUrl);
+                            } else {
+                                debugLog('User not subscribed, prompting for permission');
+                                OneSignal.registerForPushNotifications().then(function() {
+                                    debugLog('Registration successful');
+                                    OneSignal.getUserId(function(userId) {
+                                        debugLog('New userId after registration: ' + (userId || 'none'));
+                                        if (userId) {
+                                            showMessage("Successfully subscribed!", 'success');
+                                            sendDataToWebhook(email, userId, webhookUrl);
+                                        } else {
+                                            showMessage("Registration succeeded but no user ID received.");
+                                        }
+                                    });
+                                }).catch(function(error) {
+                                    debugLog('Registration failed: ' + error.message);
+                                    showMessage("Subscription failed: " + error.message);
+                                });
+                            }
+                        });
+                    } else {
+                        showMessage("Push notifications are not supported in your browser.");
+                    }
+                });
+            });
+        }
+
+        function sendDataToWebhook(email, pushToken, webhookUrl) {
+            debugLog('Sending data to webhook - Email: ' + email + ', Token: ' + pushToken);
+            
+            fetch(webhookUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    email: email,
+                    push_token: pushToken
+                })
+            })
+            .then(response => {
+                debugLog('Webhook response status: ' + response.status);
+                if (response.ok) {
+                    debugLog("Data sent to webhook successfully!");
+                } else {
+                    debugLog("Failed to send data to webhook. Status: " + response.status);
+                }
+                return response.text();
+            })
+            .then(responseText => {
+                debugLog('Webhook response: ' + responseText);
+            })
+            .catch(error => {
+                debugLog("Error sending data to webhook: " + error.message);
+                console.error("Error sending data to webhook:", error);
+            });
+        }
     </script>
 </body>
 </html>
