@@ -1,287 +1,57 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Push Token</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f3f4f6;
-        }
-        .debug-info {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            padding: 16px;
-            margin: 16px 0;
-            font-family: monospace;
-            font-size: 12px;
-            max-height: 300px;
-            overflow-y: auto;
-        }
-    </style>
-</head>
-<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Document</title>
+		<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+		<script>
+			window.OneSignalDeferred = window.OneSignalDeferred || [];
+			OneSignalDeferred.push(async function (OneSignal) {
+				const urlParams = new URLSearchParams(window.location.search);
+				const appId = urlParams.get("appId");
+				const email = urlParams.get("email"); // Get the email from URL parameter
 
-    <div class="bg-white rounded-xl shadow-lg p-8 w-full max-w-lg space-y-6">
-        <h1 class="text-2xl font-bold text-center text-gray-800">Push Notification Subscription</h1>
-        
-        <div id="debug-info" class="debug-info">
-            <div><strong>Debug Information:</strong></div>
-            <div id="debug-content">Loading...</div>
-        </div>
-        
-        <p class="text-gray-600 text-center">
-            Choose your subscription method below.
-        </p>
-        
-        <form id="subscription-form" class="space-y-4">
-            <div>
-                <label for="email" class="block text-sm font-medium text-gray-700">Email Address</label>
-                <input type="email" id="email" name="email" required class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="you@example.com">
-            </div>
-            
-            <button type="button" id="onesignal-btn" class="w-full bg-green-600 text-white font-medium py-3 rounded-lg shadow-md hover:bg-green-700 transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50">
-                Try OneSignal Method
-            </button>
-            
-        </form>
+				await OneSignal.init({
+					appId: appId,
+				});
 
-        <div id="message-box" class="hidden text-center mt-4">
-            <p id="message-text" class="text-red-500 font-medium"></p>
-        </div>
-        
-        <div id="loading-status" class="text-center text-gray-500" style="display: none;">
-            <p>Processing...</p>
-        </div>
-    </div>
+				OneSignal.User.PushSubscription.addEventListener("change", (event) => {
+					if (event.current.optedIn) {
+						const subscriptionId = event.current.id;
+						const webhookUrl = "https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/2da69580-f8b2-40a1-91a6-a131887981bf"; // Replace with your URL
 
-    <script>
-        // Debug logging function
-        function debugLog(message) {
-            console.log('[DEBUG]', message);
-            const debugContent = document.getElementById('debug-content');
-            if (debugContent) {
-                // Using textContent for security against XSS attacks
-                const logEntry = document.createElement('div');
-                logEntry.textContent = new Date().toLocaleTimeString() + ': ' + message;
-                debugContent.appendChild(logEntry);
-                debugContent.scrollTop = debugContent.scrollHeight;
-            }
-        }
-
-        // Initialize when DOM loads
-        document.addEventListener('DOMContentLoaded', function() {
-            debugLog('DOM loaded');
-            initializeApp();
-        });
-
-        function initializeApp() {
-            try {
-                // Get URL parameters
-                const urlParams = new URLSearchParams(window.location.search);
-                const emailFromUrl = urlParams.get('email');
-                const appId = urlParams.get('appid');
-                const webhookUrl = urlParams.get('webhook');
-                
-                debugLog('URL params - Email: ' + emailFromUrl + ', AppID: ' + appId + ', Webhook: ' + (webhookUrl ? 'Present' : 'Missing'));
-                debugLog('Current domain: ' + window.location.hostname);
-                
-                const emailInput = document.getElementById('email');
-                const messageBox = document.getElementById('message-box');
-                const messageText = document.getElementById('message-text');
-                const loadingStatus = document.getElementById('loading-status');
-
-                // Pre-populate email field
-                if (emailFromUrl) {
-                    emailInput.value = emailFromUrl;
-                    debugLog('Email pre-populated: ' + emailFromUrl);
-                }
-
-                // Check if webhook URL is missing
-                if (!webhookUrl) {
-                    showMessage("Missing webhook URL parameter");
-                    return;
-                }
-
-                function showMessage(message, type = 'error') {
-                    debugLog('Showing message: ' + message + ' (type: ' + type + ')');
-                    messageBox.classList.remove('hidden');
-                    messageText.textContent = message;
-                    if (type === 'success') {
-                        messageText.classList.remove('text-red-500');
-                        messageText.classList.add('text-green-600');
-                    } else {
-                        messageText.classList.remove('text-green-600');
-                        messageText.classList.add('text-red-500');
-                    }
-                    messageBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                }
-
-                // OneSignal method (only load when clicked)
-                document.getElementById('onesignal-btn').addEventListener('click', function() {
-                    const email = emailInput.value;
-                    if (!email) {
-                        showMessage('Please enter an email address');
-                        return;
-                    }
-
-                    if (!appId || appId === 'test') {
-                        showMessage('OneSignal requires a valid App ID. Current: ' + (appId || 'missing'));
-                        return;
-                    }
-
-                    debugLog('Loading OneSignal on demand');
-                    loadingStatus.style.display = 'block';
-                    loadingStatus.textContent = 'Loading OneSignal SDK...';
-                    
-                    // Load OneSignal SDK dynamically
-                    const script = document.createElement('script');
-                    script.src = 'https://cdn.onesignal.com/sdks/OneSignalSDK.js';
-                    script.onload = function() {
-                        debugLog('OneSignal SDK loaded');
-                        initializeOneSignal(appId, email, webhookUrl, showMessage, loadingStatus);
-                    };
-                    script.onerror = function() {
-                        debugLog('Failed to load OneSignal SDK');
-                        showMessage('Failed to load OneSignal SDK');
-                        loadingStatus.style.display = 'none';
-                    };
-                    document.head.appendChild(script);
-                });
-            } catch (error) {
-                debugLog('Error in initializeApp: ' + error.message);
-                console.error('Error in initializeApp:', error);
-            }
-        }
-
-        function initializeOneSignal(appId, email, webhookUrl, showMessage, loadingStatus) {
-            debugLog('Initializing OneSignal with appId: ' + appId);
-            
-            window.OneSignal = window.OneSignal || [];
-            
-            let initTimeout = setTimeout(function() {
-                debugLog('OneSignal initialization timed out');
-                showMessage('OneSignal initialization timed out. Try refreshing the page.');
-                loadingStatus.style.display = 'none';
-            }, 10000);
-
-            OneSignal.push(function() {
-                clearTimeout(initTimeout);
-                debugLog('OneSignal push function called');
-                
-                try {
-                    OneSignal.init({
-                        appId: appId,
-                        allowLocalhostAsSecureOrigin: true
-                    });
-                    
-                    debugLog('OneSignal initialized, checking user status');
-                    loadingStatus.textContent = 'OneSignal loaded, checking subscription...';
-                    
-                    // Direct approach - try to get user ID
-                    setTimeout(function() {
-                        OneSignal.getUserId().then(function(userId) {
-                            debugLog('OneSignal getUserId result: ' + (userId || 'null'));
-                            
-                            if (userId) {
-                                showMessage('Already subscribed to OneSignal!', 'success');
-                                sendDataToWebhook(email, userId, webhookUrl);
-                            } else {
-                                debugLog('Not subscribed, showing prompt');
-                                OneSignal.showSlidedownPrompt().then(function() {
-                                    debugLog('OneSignal prompt shown');
-                                    loadingStatus.textContent = 'Waiting for user response...';
-                                    
-                                    // Check again after prompt
-                                    setTimeout(function() {
-                                        OneSignal.getUserId().then(function(newUserId) {
-                                            debugLog('UserId after prompt: ' + (newUserId || 'null'));
-                                            loadingStatus.style.display = 'none';
-                                            
-                                            if (newUserId) {
-                                                showMessage('OneSignal subscription successful!', 'success');
-                                                sendDataToWebhook(email, newUserId, webhookUrl);
-                                            } else {
-                                                showMessage('OneSignal subscription incomplete. User may have denied permission.');
-                                            }
-                                        });
-                                    }, 3000);
-                                }).catch(function(error) {
-                                    debugLog('OneSignal prompt error: ' + error.message);
-                                    loadingStatus.style.display = 'none';
-                                    showMessage('OneSignal prompt failed: ' + error.message);
-                                });
-                            }
-                        }).catch(function(error) {
-                            debugLog('OneSignal getUserId error: ' + error.message);
-                            loadingStatus.style.display = 'none';
-                            showMessage('OneSignal error: ' + error.message);
-                        });
-                    }, 2000);
-                    
-                } catch (error) {
-                    debugLog('OneSignal init error: ' + error.message);
-                    loadingStatus.style.display = 'none';
-                    showMessage('OneSignal initialization error: ' + error.message);
-                }
-            });
-        }
-
-        function sendDataToWebhook(email, pushToken, webhookUrl) {
-            debugLog('=== WEBHOOK CALL START ===');
-            debugLog('Webhook URL: ' + webhookUrl);
-            debugLog('Email: ' + email);
-            debugLog('Push Token: ' + pushToken);
-            
-            const payload = {
-                email: email,
-                push_token: pushToken,
-                timestamp: new Date().toISOString(),
-                source: 'onesignal'
-            };
-            
-            debugLog('Payload: ' + JSON.stringify(payload, null, 2));
-            
-            fetch(webhookUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify(payload)
-            })
-            .then(response => {
-                debugLog('Webhook response received');
-                debugLog('Status: ' + response.status + ' ' + response.statusText);
-                
-                if (response.ok) {
-                    debugLog("✅ Webhook call successful!");
-                    document.getElementById('message-text').textContent = "Data sent to webhook successfully!";
-                    document.getElementById('message-text').className = 'text-green-600 font-medium';
-                } else {
-                    debugLog("❌ Webhook call failed with status: " + response.status);
-                    document.getElementById('message-text').textContent = "Webhook call failed with status: " + response.status;
-                    document.getElementById('message-text').className = 'text-red-500 font-medium';
-                }
-                
-                return response.text();
-            })
-            .then(responseText => {
-                debugLog('Response body: ' + responseText);
-                debugLog('=== WEBHOOK CALL END ===');
-            })
-            .catch(error => {
-                debugLog("❌ Webhook error: " + error.message);
-                debugLog('=== WEBHOOK CALL END (ERROR) ===');
-                document.getElementById('message-text').textContent = "Error sending data to webhook: " + error.message;
-                document.getElementById('message-text').className = 'text-red-500 font-medium';
-                console.error("Full webhook error:", error);
-            });
-        }
-    </script>
-</body>
+						fetch(webhookUrl, {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+							},
+							body: JSON.stringify({
+								subscriptionId: subscriptionId,
+								email: email, // Include the email in the payload
+							}),
+						})
+							.then((response) => response.json())
+							.then((data) => {
+								console.log("Success:", data);
+								document.getElementById("success-display").textContent = "Done! Subscription sent to webhook.";
+								document.getElementById("success-display").style.display = "block";
+								document.querySelector(".onesignal-customlink-container").style.display = "none";
+							})
+							.catch((error) => {
+								console.error("Error:", error);
+								document.getElementById("success-display").textContent = "An error occurred. Please try again.";
+								document.getElementById("success-display").style.background = "#fbe8e8";
+								document.getElementById("success-display").style.borderColor = "#d32f2f";
+								document.getElementById("success-display").style.display = "block";
+							});
+					}
+				});
+			});
+		</script>
+	</head>
+	<body>
+		<div class="onesignal-customlink-container"></div>
+		<div id="success-display" style="display: none; margin-top: 20px; padding: 10px; background: #e8f5e8; border: 1px solid #4caf50; border-radius: 4px"></div>
+	</body>
 </html>
