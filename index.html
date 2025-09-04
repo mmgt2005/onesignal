@@ -32,11 +32,12 @@
             <div><strong>Debug Information:</strong></div>
             <div id="debug-content">Loading...</div>
             <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ccc;">
-                <strong>Common Issues:</strong><br>
-                • Invalid App ID - Check your OneSignal dashboard<br>
-                • Domain not configured - Add your domain to OneSignal app settings<br>
-                • HTTPS required - Push notifications need secure connection<br>
-                • Browser blocking - Check if notifications are blocked
+                <strong>OneSignal Domain Setup:</strong><br>
+                Your domain: <code>68b22e4501a91fe30a917786--admirable-mousse-06d4ff.netlify.app</code><br>
+                • Go to OneSignal → Settings → Configuration<br>
+                • Add this exact domain to "Site Setup"<br>
+                • Make sure HTTPS is enabled<br>
+                • App ID format should be: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
             </div>
         </div>
         
@@ -106,6 +107,9 @@
                         messageText.classList.remove('text-green-600');
                         messageText.classList.add('text-red-500');
                     }
+                    
+                    // Auto-scroll to message if needed
+                    messageBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }
 
                 // Pre-populate email field if available in URL
@@ -124,6 +128,27 @@
                     subscriptionForm.style.display = 'none';
                     loadingStatus.style.display = 'none';
                     debugLog('Missing parameters, hiding form');
+                    return;
+                }
+
+                // Add test mode for invalid App IDs
+                const isTestMode = appId === 'test' || appId === 'demo';
+                
+                if (isTestMode) {
+                    debugLog('Running in test mode');
+                    loadingStatus.textContent = 'Running in test mode (no real push notifications)';
+                    window.OneSignalInitialized = true;
+                    
+                    // Override form submission for test mode
+                    subscriptionForm.addEventListener('submit', function(event) {
+                        event.preventDefault();
+                        const email = emailInput.value;
+                        const fakeToken = 'test-token-' + Date.now();
+                        debugLog('Test mode: simulating subscription');
+                        showMessage('Test mode: Subscription simulated successfully!', 'success');
+                        sendDataToWebhook(email, fakeToken, webhookUrl);
+                    });
+                    
                     return;
                 }
 
