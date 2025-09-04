@@ -1,133 +1,148 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>OneSignal External ID Setup</title>
-<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
-<style>
-#success-display, #error-display {
-	display: none;
-	margin-top: 20px;
-	padding: 10px;
-	border-radius: 4px;
-	opacity: 1;
-	transition: opacity 0.5s ease;
-}
-#success-display {
-	background: #e8f5e8;
-	border: 1px solid #4caf50;
-}
-#error-display {
-	background: #fdeaea;
-	border: 1px solid #f44336;
-	color: #c62828;
-}
-#error-retry {
-	margin-top: 10px;
-	padding: 8px 16px;
-	background: #f44336;
-	color: #fff;
-	border: none;
-	border-radius: 4px;
-	cursor: pointer;
-}
-</style>
-<script>
-window.OneSignalDeferred = window.OneSignalDeferred || [];
-OneSignalDeferred.push(async function (OneSignal) {
-	const urlParams = new URLSearchParams(window.location.search);
-	const appId = urlParams.get("appId");
-	const externalID = urlParams.get("externalID");
-	const redirectUrl = urlParams.get("redirectUrl"); // Optional redirect after success
-
-	await OneSignal.init({
-		appId: appId,
-		autoRegister: false,         // Don't auto-register
-		notifyButton: { enable: false } // Hide bell icon
-	});
-
-	const successDisplay = document.getElementById("success-display");
-	const errorDisplay = document.getElementById("error-display");
-	const subscribeBtn = document.getElementById("subscribe-btn");
-	const errorRetryBtn = document.getElementById("error-retry");
-	const container = document.querySelector(".onesignal-customlink-container");
-
-	async function setExternalIDAndHide() {
-		if (!externalID) return;
-
-		try {
-			const subscription = await OneSignal.User.PushSubscription.get();
-			if (!subscription.optedIn) {
-				throw new Error("User not subscribed");
-			}
-
-			await OneSignal.User.setExternalId(externalID);
-
-			// Show success
-			successDisplay.textContent = "Done! Redirecting...";
-			successDisplay.style.display = "block";
-			container.style.display = "none";
-			subscribeBtn.style.display = "none";
-			errorDisplay.style.display = "none";
-
-			// Fade out and redirect
-			setTimeout(() => {
-				successDisplay.style.opacity = 0;
-				setTimeout(() => {
-					if (redirectUrl) {
-						window.location.href = redirectUrl;
-					} else {
-						successDisplay.style.display = "none";
-					}
-				}, 500); // wait for fade-out
-			}, 1500);
-		} catch (err) {
-			console.error("Error setting external ID:", err);
-			errorDisplay.style.display = "block";
-		}
-	}
-
-	// Check if already subscribed
-	const subscription = await OneSignal.User.PushSubscription.get();
-	if (subscription.optedIn) {
-		await setExternalIDAndHide();
-	} else {
-		// Show subscribe button
-		subscribeBtn.style.display = "inline-block";
-		subscribeBtn.addEventListener("click", async () => {
-			try {
-				await OneSignal.User.pushSubscription.request();
-				await setExternalIDAndHide();
-			} catch (err) {
-				console.error("Subscription denied:", err);
-				errorDisplay.style.display = "block";
-			}
-		});
-	}
-
-	// Retry button click handler
-	errorRetryBtn.addEventListener("click", async () => {
-		errorDisplay.style.display = "none";
-		await OneSignal.User.pushSubscription.request();
-		await setExternalIDAndHide();
-	});
-});
-</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Push Token</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+    </style>
 </head>
-<body>
-<div class="onesignal-customlink-container">
-	<button id="subscribe-btn" style="display: none; padding: 10px 20px; background: #4caf50; color: #fff; border: none; border-radius: 4px; cursor: pointer;">
-		Subscribe
-	</button>
-</div>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
 
-<div id="success-display"></div>
+    <div class="bg-white rounded-xl shadow-lg p-8 w-full max-w-lg space-y-6">
+        <h1 class="text-2xl font-bold text-center text-gray-800">Push Notification Subscription</h1>
+        <p class="text-gray-600 text-center">
+            Click the button below to subscribe to push notifications.
+        </p>
+        
+        <form id="subscription-form" class="space-y-4">
+            <div>
+                <label for="email" class="block text-sm font-medium text-gray-700">Email Address</label>
+                <input type="email" id="email" name="email" required class="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm" placeholder="you@example.com">
+            </div>
+            <button type="submit" id="subscribe-btn" class="w-full bg-blue-600 text-white font-medium py-3 rounded-lg shadow-md hover:bg-blue-700 transition duration-300 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                Subscribe to Push Notifications
+            </button>
+        </form>
 
-<div id="error-display">
-	Notifications are blocked. Please enable them in your browser settings and try again.
-	<br />
-	<button id="error-retry">Retry</button>
-</div>
+        <div id="message-box" class="hidden text-center mt-4">
+            <p id="message-text" class="text-red-500 font-medium"></p>
+        </div>
+    </div>
+
+    <script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async></script>
+    <script>
+        window.addEventListener('load', function() {
+            // Get URL parameters
+            const urlParams = new URLSearchParams(window.location.search);
+            const emailFromUrl = urlParams.get('email');
+            const appId = urlParams.get('appid');
+            const webhookUrl = urlParams.get('webhook');
+            
+            const subscriptionForm = document.getElementById('subscription-form');
+            const emailInput = document.getElementById('email');
+            const messageBox = document.getElementById('message-box');
+            const messageText = document.getElementById('message-text');
+
+            function showMessage(message, type = 'error') {
+                messageBox.classList.remove('hidden');
+                messageText.textContent = message;
+                if (type === 'success') {
+                    messageText.classList.remove('text-red-500');
+                    messageText.classList.add('text-green-600');
+                } else {
+                    messageText.classList.remove('text-green-600');
+                    messageText.classList.add('text-red-500');
+                }
+            }
+
+            // Pre-populate email field if available in URL
+            if (emailFromUrl) {
+                emailInput.value = emailFromUrl;
+            }
+
+            // Check if required parameters are missing
+            if (!appId || !webhookUrl) {
+                showMessage("Missing required URL parameters: `appid` and `webhook`.");
+                subscriptionForm.style.display = 'none'; // Hide the form
+                return; // Stop execution
+            }
+
+            // Initialize OneSignal with the App ID from the URL
+            window.OneSignal = window.OneSignal || [];
+            OneSignal.push(function() {
+                OneSignal.init({
+                    appId: appId,
+                    safari_web_id: 'YOUR_SAFARI_WEB_ID' // Required for Safari, if applicable
+                });
+            });
+
+            // Handle the form submission
+            subscriptionForm.addEventListener('submit', function(event) {
+                event.preventDefault();
+                
+                const email = emailInput.value;
+
+                OneSignal.push(function() {
+                    OneSignal.isPushNotificationsSupported(function(isSupported) {
+                        if (isSupported) {
+                            OneSignal.getUserId(function(userId) {
+                                if (userId) {
+                                    showMessage("You are already subscribed. Sending your info to webhook.", 'success');
+                                    // Send the token and email to your webhook
+                                    sendDataToWebhook(email, userId, webhookUrl);
+                                } else {
+                                    // User is not subscribed, prompt them.
+                                    OneSignal.registerForPushNotifications().then(function() {
+                                        OneSignal.getUserId(function(userId) {
+                                            if (userId) {
+                                                showMessage("Successfully subscribed!", 'success');
+                                                // Once you have the userId (the token), you can send it to your webhook.
+                                                sendDataToWebhook(email, userId, webhookUrl);
+                                            }
+                                        });
+                                    }).catch(function(error) {
+                                        showMessage("Subscription failed: " + error.message);
+                                    });
+                                }
+                            });
+                        } else {
+                            showMessage("Push notifications are not supported in your browser.");
+                        }
+                    });
+                });
+            });
+
+            // This function now accepts the email and token, and uses the webhookUrl from the URL
+            function sendDataToWebhook(email, pushToken) {
+                fetch(webhookUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: email,
+                        push_token: pushToken
+                    })
+                })
+                .then(response => {
+                    if (response.ok) {
+                        console.log("Data sent to webhook successfully!");
+                    } else {
+                        console.error("Failed to send data to webhook.");
+                    }
+                })
+                .catch(error => {
+                    console.error("Error sending data to webhook:", error);
+                });
+            }
+        });
+    </script>
 </body>
 </html>
