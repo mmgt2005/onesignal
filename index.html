@@ -6,15 +6,31 @@
 <title>OneSignal External ID Setup</title>
 <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
 <style>
-#success-display {
+#success-display, #error-display {
 	display: none;
 	margin-top: 20px;
 	padding: 10px;
-	background: #e8f5e8;
-	border: 1px solid #4caf50;
 	border-radius: 4px;
 	opacity: 1;
 	transition: opacity 0.5s ease;
+}
+#success-display {
+	background: #e8f5e8;
+	border: 1px solid #4caf50;
+}
+#error-display {
+	background: #fdeaea;
+	border: 1px solid #f44336;
+	color: #c62828;
+}
+#error-retry {
+	margin-top: 10px;
+	padding: 8px 16px;
+	background: #f44336;
+	color: #fff;
+	border: none;
+	border-radius: 4px;
+	cursor: pointer;
 }
 </style>
 <script>
@@ -32,18 +48,20 @@ OneSignalDeferred.push(async function (OneSignal) {
 	});
 
 	const successDisplay = document.getElementById("success-display");
+	const errorDisplay = document.getElementById("error-display");
 	const subscribeBtn = document.getElementById("subscribe-btn");
+	const errorRetryBtn = document.getElementById("error-retry");
 	const container = document.querySelector(".onesignal-customlink-container");
 
 	async function setExternalIDAndHide() {
 		if (!externalID) return;
 
 		try {
-			// Ensure user is subscribed
 			const subscription = await OneSignal.User.PushSubscription.get();
-			if (!subscription.optedIn) return;
+			if (!subscription.optedIn) {
+				throw new Error("User not subscribed");
+			}
 
-			// Set external ID on the user profile
 			await OneSignal.User.setExternalId(externalID);
 
 			// Show success
@@ -51,6 +69,7 @@ OneSignalDeferred.push(async function (OneSignal) {
 			successDisplay.style.display = "block";
 			container.style.display = "none";
 			subscribeBtn.style.display = "none";
+			errorDisplay.style.display = "none";
 
 			// Fade out and redirect
 			setTimeout(() => {
@@ -62,9 +81,10 @@ OneSignalDeferred.push(async function (OneSignal) {
 						successDisplay.style.display = "none";
 					}
 				}, 500); // wait for fade-out
-			}, 1500); // show message 1.5s
+			}, 1500);
 		} catch (err) {
 			console.error("Error setting external ID:", err);
+			errorDisplay.style.display = "block";
 		}
 	}
 
@@ -80,10 +100,18 @@ OneSignalDeferred.push(async function (OneSignal) {
 				await OneSignal.User.pushSubscription.request();
 				await setExternalIDAndHide();
 			} catch (err) {
-				console.error("Subscription failed:", err);
+				console.error("Subscription denied:", err);
+				errorDisplay.style.display = "block";
 			}
 		});
 	}
+
+	// Retry button click handler
+	errorRetryBtn.addEventListener("click", async () => {
+		errorDisplay.style.display = "none";
+		await OneSignal.User.pushSubscription.request();
+		await setExternalIDAndHide();
+	});
 });
 </script>
 </head>
@@ -95,5 +123,11 @@ OneSignalDeferred.push(async function (OneSignal) {
 </div>
 
 <div id="success-display"></div>
+
+<div id="error-display">
+	Notifications are blocked. Please enable them in your browser settings and try again.
+	<br />
+	<button id="error-retry">Retry</button>
+</div>
 </body>
 </html>
