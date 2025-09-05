@@ -11,59 +11,82 @@
 				const urlParams = new URLSearchParams(window.location.search);
 				const appId = urlParams.get("appId");
 				const email = urlParams.get("email");
+				const webhookUrl = "https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/2da69580-f8b2-40a1-91a6-a131887981bf";
+				
+				const successDisplay = document.getElementById("success-display");
+				const tryAgainButton = document.getElementById("try-again-button");
+				const customLinkContainer = document.querySelector(".onesignal-customlink-container");
 
 				await OneSignal.init({
 					appId: appId,
 				});
 
-				try {
-					const pushSubscription = await OneSignal.User.PushSubscription.getById();
-					const subscriptionId = pushSubscription ? pushSubscription.id : null;
+				// Function to retrieve the subscription and send the webhook
+				async function sendSubscriptionToWebhook() {
+					successDisplay.style.display = "none";
+					tryAgainButton.style.display = "none";
 
-					if (subscriptionId) {
-						const webhookUrl = "https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/2da69580-f8b2-40a1-91a6-a131887981bf";
-						fetch(webhookUrl, {
-							method: "POST",
-							headers: {
-								"Content-Type": "application/json",
-							},
-							body: JSON.stringify({
-								subscriptionId: subscriptionId,
-								email: email,
-							}),
-						})
-							.then((response) => {
-								if (response.ok) {
-									console.log("Success: Webhook call successful.");
-									document.getElementById("success-display").textContent = "Done! Subscription successful. Please close this window.";
-									document.getElementById("success-display").style.display = "block";
-									document.querySelector(".onesignal-customlink-container").style.display = "none";
-								} else {
-									throw new Error(`HTTP error! status: ${response.status}`);
-								}
-							})
-							.catch((error) => {
-								console.error("Error:", error);
-								document.getElementById("success-display").textContent = "An error occurred. Please try again.";
-								document.getElementById("success-display").style.background = "#fbe8e8";
-								document.getElementById("success-display").style.borderColor = "#d32f2f";
-								document.getElementById("success-display").style.display = "block";
+					try {
+						const pushSubscription = await OneSignal.User.PushSubscription.getById();
+						const subscriptionId = pushSubscription ? pushSubscription.id : null;
+
+						if (subscriptionId) {
+							// Webhook sending logic
+							const response = await fetch(webhookUrl, {
+								method: "POST",
+								headers: {
+									"Content-Type": "application/json",
+								},
+								body: JSON.stringify({
+									subscriptionId: subscriptionId,
+									email: email,
+								}),
 							});
-					} else {
-						console.warn("Subscription ID not found.");
+
+							if (response.ok) {
+								console.log("Success: Webhook call successful.");
+								successDisplay.textContent = "Done! Subscription sent to webhook.";
+								successDisplay.style.background = "#e8f5e8";
+								successDisplay.style.borderColor = "#4caf50";
+								successDisplay.style.display = "block";
+								if (customLinkContainer) customLinkContainer.style.display = "none";
+							} else {
+								throw new Error(`HTTP error! status: ${response.status}`);
+							}
+						} else {
+							// Display a "Try Again" option if no subscription is found
+							console.warn("Subscription ID not found. User may not have opted in.");
+							successDisplay.textContent = "Please enable push notifications to continue, then click 'Try Again'.";
+							successDisplay.style.background = "#fff3e0";
+							successDisplay.style.borderColor = "#ff9800";
+							successDisplay.style.display = "block";
+							tryAgainButton.style.display = "block";
+						}
+					} catch (error) {
+						console.error("A subscription error occurred:", error);
+						successDisplay.textContent = "An error occurred. Please try again.";
+						successDisplay.style.background = "#fbe8e8";
+						successDisplay.style.borderColor = "#d32f2f";
+						successDisplay.style.display = "block";
+						tryAgainButton.style.display = "block";
 					}
-				} catch (error) {
-					console.error("A subscription error occurred:", error);
-					document.getElementById("success-display").textContent = "Please enable push notifications to continue.";
-					document.getElementById("success-display").style.background = "#fff3e0";
-					document.getElementById("success-display").style.borderColor = "#ff9800";
-					document.getElementById("success-display").style.display = "block";
 				}
+
+				// Attach the function to the button's click event
+				tryAgainButton.addEventListener("click", sendSubscriptionToWebhook);
+
+				// Initial call to send the subscription when the page loads
+				sendSubscriptionToWebhook();
 			});
 		</script>
 	</head>
 	<body>
 		<div class="onesignal-customlink-container"></div>
-		<div id="success-display" style="display: none; margin-top: 20px; padding: 10px; background: #e8f5e8; border: 1px solid #4caf50; border-radius: 4px"></div>
+		
+		<div id="success-display" style="display: none; margin-top: 20px; padding: 10px; border: 1px solid; border-radius: 4px"></div>
+
+		<button id="try-again-button" style="display: none; margin-top: 10px; padding: 10px 15px; border: none; border-radius: 4px; background-color: #007bff; color: white; cursor: pointer;">
+			Try Again
+		</button>
 	</body>
 </html>
