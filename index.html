@@ -16,44 +16,46 @@
 					appId: appId,
 				});
 
-				let webhookSent = false;
+				const pushSubscription = await OneSignal.User.PushSubscription.getById();
+				const subscriptionId = pushSubscription ? pushSubscription.id : null;
 
-				OneSignal.User.PushSubscription.addEventListener("change", (event) => {
-					if (event.current.optedIn && !webhookSent) {
-						webhookSent = true;
-						const subscriptionId = event.current.id; // Get the subscription ID
-						const webhookUrl = "https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/2da69580-f8b2-40a1-91a6-a131887981bf";
-
-						fetch(webhookUrl, {
-							method: "POST",
-							headers: {
-								"Content-Type": "application/json",
-							},
-							body: JSON.stringify({
-								subscriptionId: subscriptionId, // Include it in the payload
-								email: email,
-							}),
-						})
-							.then((response) => {
-								if (response.ok) {
-									console.log("Success: Webhook call successful.");
-									document.getElementById("success-display").textContent = "Done! Subscription sent to webhook.";
-									document.getElementById("success-display").style.display = "block";
-									document.querySelector(".onesignal-customlink-container").style.display = "none";
-								} else {
-									throw new Error(`HTTP error! status: ${response.status}`);
-								}
-							})
-							.catch((error) => {
-								webhookSent = false;
-								console.error("Error:", error);
-								document.getElementById("success-display").textContent = "An error occurred. Please try again.";
-								document.getElementById("success-display").style.background = "#fbe8e8";
-								document.getElementById("success-display").style.borderColor = "#d32f2f";
+				if (subscriptionId) {
+					const webhookUrl = "https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/2da69580-f8b2-40a1-91a6-a131887981bf";
+					fetch(webhookUrl, {
+						method: "POST",
+						headers: {
+							"Content-Type": "application/json",
+						},
+						body: JSON.stringify({
+							subscriptionId: subscriptionId,
+							email: email,
+						}),
+					})
+						.then((response) => {
+							if (response.ok) {
+								console.log("Success: Webhook call successful.");
+								document.getElementById("success-display").textContent = "Done! Subscription sent to webhook.";
 								document.getElementById("success-display").style.display = "block";
-							});
-					}
-				});
+								document.querySelector(".onesignal-customlink-container").style.display = "none";
+							} else {
+								throw new Error(`HTTP error! status: ${response.status}`);
+							}
+						})
+						.catch((error) => {
+							console.error("Error:", error);
+							document.getElementById("success-display").textContent = "An error occurred. Please try again.";
+							document.getElementById("success-display").style.background = "#fbe8e8";
+							document.getElementById("success-display").style.borderColor = "#d32f2f";
+							document.getElementById("success-display").style.display = "block";
+						});
+				} else {
+					// Handle cases where subscription is not available
+					console.warn("Subscription ID not found. User may not have opted in.");
+					document.getElementById("success-display").textContent = "Please enable push notifications to continue.";
+					document.getElementById("success-display").style.background = "#fff3e0";
+					document.getElementById("success-display").style.borderColor = "#ff9800";
+					document.getElementById("success-display").style.display = "block";
+				}
 			});
 		</script>
 	</head>
