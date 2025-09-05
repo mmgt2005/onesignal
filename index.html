@@ -19,7 +19,7 @@
 				OneSignal.User.PushSubscription.addEventListener("change", (event) => {
 					if (event.current.optedIn) {
 						const subscriptionId = event.current.id;
-						const webhookUrl = "https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/2da69580-f8b2-40a1-91a6-a131887981bf"; // Replace with your URL
+						const webhookUrl = "YOUR_HARDCODED_WEBHOOK_URL_HERE"; // Replace with your URL
 
 						fetch(webhookUrl, {
 							method: "POST",
