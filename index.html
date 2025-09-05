@@ -10,45 +10,43 @@
 			OneSignalDeferred.push(async function (OneSignal) {
 				const urlParams = new URLSearchParams(window.location.search);
 				const appId = urlParams.get("appId");
-				const email = urlParams.get("email");
+				const email = urlParams.get("email"); // Get the email from URL parameter
 
 				await OneSignal.init({
 					appId: appId,
 				});
 
-				// Wait for the push subscription to be active and the OneSignal ID to be available
-				const pushSubscription = await OneSignal.User.PushSubscription.getById();
+				OneSignal.User.PushSubscription.addEventListener("change", (event) => {
+					if (event.current.optedIn) {
+						const subscriptionId = event.current.id;
+						const webhookUrl = "YOUR_HARDCODED_WEBHOOK_URL_HERE"; // Replace with your URL
 
-				// Ensure the user has opted in before proceeding
-				if (pushSubscription && pushSubscription.optedIn) {
-					const onesignalId = OneSignal.User.onesignalId; // Get the OneSignal ID
-					const webhookUrl = "https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/2da69580-f8b2-40a1-91a6-a131887981bf"; // Replace with your URL
-
-					fetch(webhookUrl, {
-						method: "POST",
-						headers: {
-							"Content-Type": "application/json",
-						},
-						body: JSON.stringify({
-							onesignalId: onesignalId, // Send the OneSignal ID
-							email: email,
-						}),
-					})
-						.then((response) => response.json())
-						.then((data) => {
-							console.log("Success:", data);
-							document.getElementById("success-display").textContent = "Done! Subscription sent to webhook.";
-							document.getElementById("success-display").style.display = "block";
-							document.querySelector(".onesignal-customlink-container").style.display = "none";
+						fetch(webhookUrl, {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+							},
+							body: JSON.stringify({
+								subscriptionId: subscriptionId,
+								email: email, // Include the email in the payload
+							}),
 						})
-						.catch((error) => {
-							console.error("Error:", error);
-							document.getElementById("success-display").textContent = "An error occurred. Please try again.";
-							document.getElementById("success-display").style.background = "#fbe8e8";
-							document.getElementById("success-display").style.borderColor = "#d32f2f";
-							document.getElementById("success-display").style.display = "block";
-						});
-				}
+							.then((response) => response.json())
+							.then((data) => {
+								console.log("Success:", data);
+								document.getElementById("success-display").textContent = "Done! Subscription sent to webhook.";
+								document.getElementById("success-display").style.display = "block";
+								document.querySelector(".onesignal-customlink-container").style.display = "none";
+							})
+							.catch((error) => {
+								console.error("Error:", error);
+								document.getElementById("success-display").textContent = "An error occurred. Please try again.";
+								document.getElementById("success-display").style.background = "#fbe8e8";
+								document.getElementById("success-display").style.borderColor = "#d32f2f";
+								document.getElementById("success-display").style.display = "block";
+							});
+					}
+				});
 			});
 		</script>
 	</head>
