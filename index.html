@@ -11,45 +11,116 @@
 				const urlParams = new URLSearchParams(window.location.search);
 				const appId = urlParams.get("appId");
 				const email = urlParams.get("email");
-				const rowid = urlParams.get("rowid"); // Added rowid extraction
+				const rowid = urlParams.get("rowid");
+				
 				await OneSignal.init({
 					appId: appId,
 				});
-				OneSignal.User.PushSubscription.addEventListener("change", (event) => {
-					if (event.current.optedIn) {
-						const subscriptionId = event.current.id;
-						const webhookUrl = "https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/2da69580-f8b2-40a1-91a6-a131887981bf";
-						fetch(webhookUrl, {
-							method: "POST",
-							headers: {
-								"Content-Type": "application/json",
-							},
-							body: JSON.stringify({
-								rowid: rowid,           // Added rowid to payload
+
+				let subscriptionConfirmed = false;
+				
+				// Function to manually send webhook
+				async function sendWebhookManually() {
+					console.log("Manual webhook send triggered...");
+					
+					try {
+						// Try multiple methods to get subscription ID
+						let subscriptionId = null;
+						
+						// Method 1: Try getting push subscription
+						try {
+							const pushSubscription = await OneSignal.User.PushSubscription.getById();
+							subscriptionId = pushSubscription ? pushSubscription.id : null;
+							console.log("Push subscription:", pushSubscription);
+						} catch (e) {
+							console.log("Push subscription method failed:", e);
+						}
+						
+						// Method 2: Try getting OneSignal user ID
+						if (!subscriptionId) {
+							try {
+								subscriptionId = await OneSignal.User.getOnesignalId();
+								console.log("OneSignal user ID:", subscriptionId);
+							} catch (e) {
+								console.log("User ID method failed:", e);
+							}
+						}
+						
+						console.log("Final subscription ID for webhook:", subscriptionId);
+						
+						if (subscriptionId) {
+							const webhookUrl = "https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/2da69580-f8b2-40a1-91a6-a131887981bf";
+							
+							console.log("Sending webhook with data:", {
+								rowid: rowid,
 								email: email,
-								subscriptionId: subscriptionId,
-							}),
-						})
-							.then((response) => {
-								console.log("Webhook response status:", response.status);
-								return response.json();
-							})
-							.then((data) => {
-								console.log("Webhook success response:", data);
-								document.getElementById("success-display").textContent = "Done! Subscription sent to webhook.";
-								document.getElementById("success-display").style.display = "block";
-								document.querySelector(".onesignal-customlink-container").style.display = "none";
-							})
-							.catch((error) => {
-								console.error("Webhook error:", error);
-								webhookSent = false; // Reset on error so user can try again
-								document.getElementById("success-display").textContent = "An error occurred. Please try again.";
-								document.getElementById("success-display").style.background = "#fbe8e8";
-								document.getElementById("success-display").style.borderColor = "#d32f2f";
-								document.getElementById("success-display").style.display = "block";
+								subscriptionId: subscriptionId
 							});
+							
+							const response = await fetch(webhookUrl, {
+								method: "POST",
+								headers: {
+									"Content-Type": "application/json",
+								},
+								body: JSON.stringify({
+									rowid: rowid,
+									email: email,
+									subscriptionId: subscriptionId,
+								}),
+							});
+							
+							console.log("Webhook response status:", response.status);
+							const data = await response.json();
+							console.log("Webhook success response:", data);
+							
+							document.getElementById("success-display").textContent = "Done! Subscription sent to webhook.";
+							document.getElementById("success-display").style.background = "#e8f5e8";
+							document.getElementById("success-display").style.borderColor = "#4caf50";
+							document.getElementById("success-display").style.display = "block";
+							document.getElementById("next-button").style.display = "none";
+							document.querySelector(".onesignal-customlink-container").style.display = "none";
+							
+						} else {
+							throw new Error("No subscription ID found");
+						}
+						
+					} catch (error) {
+						console.error("Manual webhook error:", error);
+						document.getElementById("success-display").textContent = "Could not retrieve subscription ID. Please try again or refresh the page.";
+						document.getElementById("success-display").style.background = "#fbe8e8";
+						document.getElementById("success-display").style.borderColor = "#d32f2f";
+						document.getElementById("success-display").style.display = "block";
+					}
+				}
+				
+				// Add click listener for next button
+				document.getElementById("next-button").addEventListener("click", sendWebhookManually);
+				
+				// ONLY listen for subscription changes to show the Next button - NO automatic webhook sending
+				OneSignal.User.PushSubscription.addEventListener("change", (event) => {
+					console.log("Subscription change event:", event);
+					console.log("Current subscription:", event.current);
+					console.log("OptedIn:", event.current.optedIn);
+					console.log("Subscription ID from event:", event.current.id);
+					
+					if (event.current.optedIn && !subscriptionConfirmed) {
+						subscriptionConfirmed = true;
+						console.log("Subscription confirmed! Showing Next button...");
+						
+						// Show the Next button - NO webhook sending here
+						document.getElementById("success-display").textContent = "Great! Push notifications are enabled. Click 'Next' to continue.";
+						document.getElementById("success-display").style.background = "#e3f2fd";
+						document.getElementById("success-display").style.borderColor = "#2196f3";
+						document.getElementById("success-display").style.display = "block";
+						document.getElementById("next-button").style.display = "block";
+						
+						// Hide the OneSignal prompt
+						const customLinkContainer = document.querySelector(".onesignal-customlink-container");
+						if (customLinkContainer) {
+							customLinkContainer.style.display = "none";
+						}
 					} else {
-						console.log("Subscription not ready yet - optedIn:", event.current.optedIn, "id:", event.current.id);
+						console.log("Subscription not ready yet - optedIn:", event.current.optedIn);
 					}
 				});
 			});
@@ -58,5 +129,10 @@
 	<body>
 		<div class="onesignal-customlink-container"></div>
 		<div id="success-display" style="display: none; margin-top: 20px; padding: 10px; background: #e8f5e8; border: 1px solid #4caf50; border-radius: 4px"></div>
+		
+		<!-- Next button for manual webhook sending -->
+		<button id="next-button" style="display: none; margin-top: 10px; padding: 10px 20px; border: none; border-radius: 4px; background-color: #007bff; color: white; cursor: pointer; font-size: 16px;">
+			Next - Send to Webhook
+		</button>
 	</body>
 </html>
