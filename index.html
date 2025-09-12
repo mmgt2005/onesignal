@@ -30,20 +30,26 @@
 								subscriptionId: subscriptionId,
 							}),
 						})
-							.then((response) => response.json())
+							.then((response) => {
+								console.log("Webhook response status:", response.status);
+								return response.json();
+							})
 							.then((data) => {
-								console.log("Success:", data);
+								console.log("Webhook success response:", data);
 								document.getElementById("success-display").textContent = "Done! Subscription sent to webhook.";
 								document.getElementById("success-display").style.display = "block";
 								document.querySelector(".onesignal-customlink-container").style.display = "none";
 							})
 							.catch((error) => {
-								console.error("Error:", error);
+								console.error("Webhook error:", error);
+								webhookSent = false; // Reset on error so user can try again
 								document.getElementById("success-display").textContent = "An error occurred. Please try again.";
 								document.getElementById("success-display").style.background = "#fbe8e8";
 								document.getElementById("success-display").style.borderColor = "#d32f2f";
 								document.getElementById("success-display").style.display = "block";
 							});
+					} else {
+						console.log("Subscription not ready yet - optedIn:", event.current.optedIn, "id:", event.current.id);
 					}
 				});
 			});
