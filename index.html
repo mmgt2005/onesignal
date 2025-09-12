@@ -106,15 +106,34 @@
 							});
 							
 							console.log("Webhook response status:", response.status);
-							const data = await response.json();
-							console.log("Webhook success response:", data);
 							
-							document.getElementById("success-display").textContent = "Done! Subscription sent to webhook.";
-							document.getElementById("success-display").style.background = "#e8f5e8";
-							document.getElementById("success-display").style.borderColor = "#4caf50";
-							document.getElementById("success-display").style.display = "block";
-							document.getElementById("next-button").style.display = "none";
-							document.querySelector(".onesignal-customlink-container").style.display = "none";
+							// Handle both JSON and text responses
+							let responseData;
+							const contentType = response.headers.get("content-type");
+							console.log("Response content-type:", contentType);
+							
+							try {
+								if (contentType && contentType.includes("application/json")) {
+									responseData = await response.json();
+								} else {
+									responseData = await response.text();
+								}
+								console.log("Webhook response data:", responseData);
+							} catch (parseError) {
+								console.log("Could not parse response, treating as success:", parseError);
+								responseData = "Response received successfully";
+							}
+							
+							if (response.ok) {
+								document.getElementById("success-display").textContent = "Done! Subscription sent to webhook.";
+								document.getElementById("success-display").style.background = "#e8f5e8";
+								document.getElementById("success-display").style.borderColor = "#4caf50";
+								document.getElementById("success-display").style.display = "block";
+								document.getElementById("next-button").style.display = "none";
+								document.querySelector(".onesignal-customlink-container").style.display = "none";
+							} else {
+								throw new Error(`Webhook failed with status: ${response.status}`);
+							}
 							
 						} else {
 							console.log("ERROR: No subscription ID found after all attempts");
@@ -206,7 +225,7 @@
 		
 		<!-- Next button for manual webhook sending -->
 		<button id="next-button" style="display: none; margin-top: 10px; padding: 10px 20px; border: none; border-radius: 4px; background-color: #007bff; color: white; cursor: pointer; font-size: 16px;">
-			Next - Send to Webhook
+			Next
 		</button>
 	</body>
 </html>
