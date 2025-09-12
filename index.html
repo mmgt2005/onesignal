@@ -5,85 +5,52 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<title>Document</title>
 		<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+		<script>
+			window.OneSignalDeferred = window.OneSignalDeferred || [];
+			OneSignalDeferred.push(async function (OneSignal) {
+				const urlParams = new URLSearchParams(window.location.search);
+				const appId = urlParams.get("appId");
+				const email = urlParams.get("email");
+				const rowid = urlParams.get("rowid"); // Added rowid extraction
+				await OneSignal.init({
+					appId: appId,
+				});
+				OneSignal.User.PushSubscription.addEventListener("change", (event) => {
+					if (event.current.optedIn) {
+						const subscriptionId = event.current.id;
+						const webhookUrl = "https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/2da69580-f8b2-40a1-91a6-a131887981bf";
+						fetch(webhookUrl, {
+							method: "POST",
+							headers: {
+								"Content-Type": "application/json",
+							},
+							body: JSON.stringify({
+								rowid: rowid,           // Added rowid to payload
+								email: email,
+								subscriptionId: subscriptionId,
+							}),
+						})
+							.then((response) => response.json())
+							.then((data) => {
+								console.log("Success:", data);
+								document.getElementById("success-display").textContent = "Done! Subscription sent to webhook.";
+								document.getElementById("success-display").style.display = "block";
+								document.querySelector(".onesignal-customlink-container").style.display = "none";
+							})
+							.catch((error) => {
+								console.error("Error:", error);
+								document.getElementById("success-display").textContent = "An error occurred. Please try again.";
+								document.getElementById("success-display").style.background = "#fbe8e8";
+								document.getElementById("success-display").style.borderColor = "#d32f2f";
+								document.getElementById("success-display").style.display = "block";
+							});
+					}
+				});
+			});
+		</script>
 	</head>
 	<body>
 		<div class="onesignal-customlink-container"></div>
-		
-		<div id="success-display" style="display: none; margin-top: 20px; padding: 10px; border: 1px solid; border-radius: 4px"></div>
-
-		<button id="try-again-button" style="display: none; margin-top: 10px; padding: 10px 15px; border: none; border-radius: 4px; background-color: #007bff; color: white; cursor: pointer;">
-			Try Again
-		</button>
-        
-        <script>
-            window.OneSignalDeferred = window.OneSignalDeferred || [];
-            OneSignalDeferred.push(async function (OneSignal) {
-                const urlParams = new URLSearchParams(window.location.search);
-                const appId = urlParams.get("appId");
-                const email = urlParams.get("email");
-                const rowid = urlParams.get("rowid"); // Added rowid extraction
-                const webhookUrl = "https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/2da69580-f8b2-40a1-91a6-a131887981bf";
-                
-                const successDisplay = document.getElementById("success-display");
-                const tryAgainButton = document.getElementById("try-again-button");
-                const customLinkContainer = document.querySelector(".onesignal-customlink-container");
-
-                await OneSignal.init({
-                    appId: appId,
-                });
-
-                async function sendSubscriptionToWebhook() {
-                    successDisplay.style.display = "none";
-                    tryAgainButton.style.display = "none";
-
-                    try {
-                        const pushSubscription = await OneSignal.User.PushSubscription.getById();
-                        const subscriptionId = pushSubscription ? pushSubscription.id : null;
-
-                        if (subscriptionId) {
-                            const response = await fetch(webhookUrl, {
-                                method: "POST",
-                                headers: {
-                                    "Content-Type": "application/json",
-                                },
-                                body: JSON.stringify({
-                                    rowid: rowid,           // Added rowid to payload
-                                    email: email,
-                                    subscriptionId: subscriptionId,
-                                }),
-                            });
-
-                            if (response.ok) {
-                                console.log("Success: Webhook call successful.");
-                                successDisplay.textContent = "Done! Subscription successfully.";
-                                successDisplay.style.background = "#e8f5e8";
-                                successDisplay.style.borderColor = "#4caf50";
-                                successDisplay.style.display = "block";
-                                if (customLinkContainer) customLinkContainer.style.display = "none";
-                            } else {
-                                throw new Error(`HTTP error! status: ${response.status}`);
-                            }
-                        } else {
-                            console.warn("Subscription ID not found after trying all methods. User may not have opted in or subscription may not be ready yet.");
-                            successDisplay.textContent = "Please enable push notifications to continue, then click 'Try Again'. If notifications are enabled, wait a moment and try again.";
-                            successDisplay.style.background = "#fff3e0";
-                            successDisplay.style.borderColor = "#ff9800";
-                            successDisplay.style.display = "block";
-                            tryAgainButton.style.display = "block";
-                        }
-                    } catch (error) {
-                        console.error("A subscription error occurred:", error);
-                        successDisplay.textContent = "An error occurred. Please try again.";
-                        successDisplay.style.background = "#fbe8e8";
-                        successDisplay.style.borderColor = "#d32f2f";
-                        successDisplay.style.display = "block";
-                        tryAgainButton.style.display = "block";
-                    }
-                }
-
-                tryAgainButton.addEventListener("click", sendSubscriptionToWebhook);
-                sendSubscriptionToWebhook();
-            });
-        </script>
+		<div id="success-display" style="display: none; margin-top: 20px; padding: 10px; background: #e8f5e8; border: 1px solid #4caf50; border-radius: 4px"></div>
 	</body>
 </html>
