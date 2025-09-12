@@ -15,7 +15,10 @@
 				
 				await OneSignal.init({
 					appId: appId,
-				});
+					
+				// Add click listener for next button
+				document.getElementById("next-button").addEventListener("click", sendWebhookManually);
+			});
 
 				let subscriptionConfirmed = false;
 				
@@ -134,7 +137,7 @@
 		
 		<!-- Next button for manual webhook sending -->
 		<button id="next-button" style="display: none; margin-top: 10px; padding: 10px 20px; border: none; border-radius: 4px; background-color: #007bff; color: white; cursor: pointer; font-size: 16px;">
-			Next - Send to Webhook
+			Next
 		</button>
 	</body>
 </html>
