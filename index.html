@@ -105,7 +105,9 @@
 					
 					if (event.current.optedIn && !subscriptionConfirmed) {
 						subscriptionConfirmed = true;
-						console.log("Subscription confirmed! Showing Next button...");
+						storedSubscriptionId = event.current.id; // Store the subscription ID from the event
+						console.log("Subscription confirmed! Stored ID:", storedSubscriptionId);
+						console.log("Showing Next button...");
 						
 						// Show the Next button - NO webhook sending here
 						document.getElementById("success-display").textContent = "Great! Push notifications are enabled. Click 'Next' to continue.";
@@ -132,7 +134,7 @@
 		
 		<!-- Next button for manual webhook sending -->
 		<button id="next-button" style="display: none; margin-top: 10px; padding: 10px 20px; border: none; border-radius: 4px; background-color: #007bff; color: white; cursor: pointer; font-size: 16px;">
-			Next - Send to Webhook
+			Next
 		</button>
 	</body>
 </html>
