@@ -15,61 +15,94 @@
 				
 				await OneSignal.init({
 					appId: appId,
-					
-				// Add click listener for next button
-				document.getElementById("next-button").addEventListener("click", sendWebhookManually);
-			});
+				});
 
 				let subscriptionConfirmed = false;
+				let storedSubscriptionId = null;
+				
+				// Function to show the Next button
+				function showNextButton() {
+					console.log("Showing Next button - current stored ID:", storedSubscriptionId);
+					document.getElementById("success-display").textContent = "Great! Push notifications are enabled. Click 'Next' to continue.";
+					document.getElementById("success-display").style.background = "#e3f2fd";
+					document.getElementById("success-display").style.borderColor = "#2196f3";
+					document.getElementById("success-display").style.display = "block";
+					document.getElementById("next-button").style.display = "block";
+					
+					const customLinkContainer = document.querySelector(".onesignal-customlink-container");
+					if (customLinkContainer) {
+						customLinkContainer.style.display = "none";
+					}
+				}
 				
 				// Function to manually send webhook
 				async function sendWebhookManually() {
-					console.log("Manual webhook send triggered...");
+					console.log("=== MANUAL WEBHOOK SEND ===");
+					console.log("Stored subscription ID:", storedSubscriptionId);
 					
 					try {
-						// Try multiple methods to get subscription ID
-						let subscriptionId = null;
+						let subscriptionId = storedSubscriptionId;
 						
-						// Method 1: Try getting push subscription
-						try {
-							const pushSubscription = await OneSignal.User.PushSubscription.getById();
-							subscriptionId = pushSubscription ? pushSubscription.id : null;
-							console.log("Push subscription:", pushSubscription);
-						} catch (e) {
-							console.log("Push subscription method failed:", e);
-						}
-						
-						// Method 2: Try getting OneSignal user ID
+						// If we don't have stored ID, try the API methods with retry
 						if (!subscriptionId) {
-							try {
-								subscriptionId = await OneSignal.User.getOnesignalId();
-								console.log("OneSignal user ID:", subscriptionId);
-							} catch (e) {
-								console.log("User ID method failed:", e);
+							console.log("No stored ID, trying API methods with retries...");
+							
+							for (let attempt = 1; attempt <= 5; attempt++) {
+								console.log(`Attempt ${attempt} to get subscription ID...`);
+								
+								// Method 1: Try getting push subscription
+								try {
+									const pushSubscription = await OneSignal.User.PushSubscription.getById();
+									if (pushSubscription && pushSubscription.id) {
+										subscriptionId = pushSubscription.id;
+										console.log("SUCCESS - Push subscription:", pushSubscription);
+										break;
+									}
+								} catch (e) {
+									console.log("Push subscription method failed:", e);
+								}
+								
+								// Method 2: Try getting OneSignal user ID
+								if (!subscriptionId) {
+									try {
+										const userId = await OneSignal.User.getOnesignalId();
+										if (userId) {
+											subscriptionId = userId;
+											console.log("SUCCESS - OneSignal user ID:", userId);
+											break;
+										}
+									} catch (e) {
+										console.log("User ID method failed:", e);
+									}
+								}
+								
+								// Wait before next attempt
+								if (!subscriptionId && attempt < 5) {
+									console.log("Waiting 2 seconds before next attempt...");
+									await new Promise(resolve => setTimeout(resolve, 2000));
+								}
 							}
 						}
 						
-						console.log("Final subscription ID for webhook:", subscriptionId);
+						console.log("FINAL subscription ID for webhook:", subscriptionId);
 						
 						if (subscriptionId) {
 							const webhookUrl = "https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/2da69580-f8b2-40a1-91a6-a131887981bf";
 							
-							console.log("Sending webhook with data:", {
+							const webhookData = {
 								rowid: rowid,
 								email: email,
 								subscriptionId: subscriptionId
-							});
+							};
+							
+							console.log("Sending webhook with data:", webhookData);
 							
 							const response = await fetch(webhookUrl, {
 								method: "POST",
 								headers: {
 									"Content-Type": "application/json",
 								},
-								body: JSON.stringify({
-									rowid: rowid,
-									email: email,
-									subscriptionId: subscriptionId,
-								}),
+								body: JSON.stringify(webhookData),
 							});
 							
 							console.log("Webhook response status:", response.status);
@@ -84,7 +117,8 @@
 							document.querySelector(".onesignal-customlink-container").style.display = "none";
 							
 						} else {
-							throw new Error("No subscription ID found");
+							console.log("ERROR: No subscription ID found after all attempts");
+							throw new Error("No subscription ID found after all attempts");
 						}
 						
 					} catch (error) {
@@ -99,35 +133,70 @@
 				// Add click listener for next button
 				document.getElementById("next-button").addEventListener("click", sendWebhookManually);
 				
-				// ONLY listen for subscription changes to show the Next button - NO automatic webhook sending
+				// Event 1: PushSubscription change
 				OneSignal.User.PushSubscription.addEventListener("change", (event) => {
-					console.log("Subscription change event:", event);
-					console.log("Current subscription:", event.current);
-					console.log("OptedIn:", event.current.optedIn);
-					console.log("Subscription ID from event:", event.current.id);
+					console.log("=== PUSHSUBSCRIPTION CHANGE EVENT ===");
+					console.log("event.current.optedIn:", event.current.optedIn);
+					console.log("event.current.id:", event.current.id);
+					
+					// Store the ID if it exists
+					if (event.current.id) {
+						storedSubscriptionId = event.current.id;
+						console.log("STORED subscription ID from PushSubscription change:", storedSubscriptionId);
+					}
 					
 					if (event.current.optedIn && !subscriptionConfirmed) {
 						subscriptionConfirmed = true;
-						storedSubscriptionId = event.current.id; // Store the subscription ID from the event
-						console.log("Subscription confirmed! Stored ID:", storedSubscriptionId);
-						console.log("Showing Next button...");
-						
-						// Show the Next button - NO webhook sending here
-						document.getElementById("success-display").textContent = "Great! Push notifications are enabled. Click 'Next' to continue.";
-						document.getElementById("success-display").style.background = "#e3f2fd";
-						document.getElementById("success-display").style.borderColor = "#2196f3";
-						document.getElementById("success-display").style.display = "block";
-						document.getElementById("next-button").style.display = "block";
-						
-						// Hide the OneSignal prompt
-						const customLinkContainer = document.querySelector(".onesignal-customlink-container");
-						if (customLinkContainer) {
-							customLinkContainer.style.display = "none";
-						}
-					} else {
-						console.log("Subscription not ready yet - optedIn:", event.current.optedIn);
+						showNextButton();
 					}
 				});
+				
+				// Event 2: User change event
+				OneSignal.User.addEventListener("change", (event) => {
+					console.log("=== USER CHANGE EVENT ===");
+					console.log("event.current:", event.current);
+					if (event.current.onesignalId) {
+						storedSubscriptionId = event.current.onesignalId;
+						console.log("STORED subscription ID from User change:", storedSubscriptionId);
+					}
+				});
+				
+				// Event 3: Permission change
+				try {
+					OneSignal.Notifications.addEventListener("permissionChange", async (granted) => {
+						console.log("=== PERMISSION CHANGE EVENT ===");
+						console.log("Permission granted:", granted);
+						
+						if (granted) {
+							// Wait a bit for subscription to be created
+							setTimeout(async () => {
+								try {
+									const pushSub = await OneSignal.User.PushSubscription.getById();
+									const userId = await OneSignal.User.getOnesignalId();
+									console.log("After permission - pushSub:", pushSub);
+									console.log("After permission - userId:", userId);
+									
+									if (pushSub && pushSub.id) {
+										storedSubscriptionId = pushSub.id;
+										console.log("STORED subscription ID from permission change:", storedSubscriptionId);
+									} else if (userId) {
+										storedSubscriptionId = userId;
+										console.log("STORED user ID from permission change:", storedSubscriptionId);
+									}
+									
+									if (!subscriptionConfirmed && granted) {
+										subscriptionConfirmed = true;
+										showNextButton();
+									}
+								} catch (e) {
+									console.log("Error getting subscription after permission:", e);
+								}
+							}, 2000);
+						}
+					});
+				} catch (e) {
+					console.log("Could not add permission listener:", e);
+				}
 			});
 		</script>
 	</head>
@@ -137,7 +206,7 @@
 		
 		<!-- Next button for manual webhook sending -->
 		<button id="next-button" style="display: none; margin-top: 10px; padding: 10px 20px; border: none; border-radius: 4px; background-color: #007bff; color: white; cursor: pointer; font-size: 16px;">
-			Next
+			Next - Send to Webhook
 		</button>
 	</body>
 </html>
