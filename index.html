@@ -21,6 +21,7 @@
                 const urlParams = new URLSearchParams(window.location.search);
                 const appId = urlParams.get("appId");
                 const email = urlParams.get("email");
+                const rowid = urlParams.get("rowid"); // Added rowid extraction
                 const webhookUrl = "https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/2da69580-f8b2-40a1-91a6-a131887981bf";
                 
                 const successDisplay = document.getElementById("success-display");
@@ -46,8 +47,9 @@
                                     "Content-Type": "application/json",
                                 },
                                 body: JSON.stringify({
-                                    subscriptionId: subscriptionId,
+                                    rowid: rowid,           // Added rowid to payload
                                     email: email,
+                                    subscriptionId: subscriptionId,
                                 }),
                             });
 
@@ -62,8 +64,8 @@
                                 throw new Error(`HTTP error! status: ${response.status}`);
                             }
                         } else {
-                            console.warn("Subscription ID not found. User may not have opted in.");
-                            successDisplay.textContent = "Please enable push notifications to continue, then click 'Try Again'.";
+                            console.warn("Subscription ID not found after trying all methods. User may not have opted in or subscription may not be ready yet.");
+                            successDisplay.textContent = "Please enable push notifications to continue, then click 'Try Again'. If notifications are enabled, wait a moment and try again.";
                             successDisplay.style.background = "#fff3e0";
                             successDisplay.style.borderColor = "#ff9800";
                             successDisplay.style.display = "block";
