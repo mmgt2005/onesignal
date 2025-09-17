@@ -113,7 +113,7 @@
         }
 
         // Simple speech function with strong duplicate prevention
-        function speakText(text) {
+        function speakText(text, skipCancel = false) {
             if (!speechActive || !text) return false;
             
             // Normalize the text for comparison
@@ -146,8 +146,10 @@
             updateMessage(text);
             
             try {
-                // Cancel any pending speech
-                window.speechSynthesis.cancel();
+                // Only cancel if not told to skip (to avoid cutting off previous speech)
+                if (!skipCancel) {
+                    window.speechSynthesis.cancel();
+                }
                 
                 // Create and speak utterance
                 const utterance = new SpeechSynthesisUtterance(text);
@@ -156,7 +158,7 @@
                 utterance.pitch = 1.0;
                 
                 utterance.onend = () => {
-                    console.log('Finished speaking');
+                    console.log('Finished speaking:', text.substring(0, 30));
                 };
                 
                 utterance.onerror = (e) => {
@@ -334,12 +336,13 @@
             // Keep history but clear recent to allow re-announcement if needed
             recentlySpoken.clear();
             
-            // Get and speak first instruction after a short delay
+            // Get and speak first instruction after a longer delay to avoid cutting off "enabled" message
             setTimeout(() => {
                 const firstInstruction = getCurrentInstruction();
                 if (firstInstruction && firstInstruction.length > 8) {
                     console.log('First instruction:', firstInstruction);
-                    speakText(firstInstruction);
+                    // Don't cancel previous speech (the "enabled" message might still be playing)
+                    speakText(firstInstruction, true); // true = skip cancel
                 }
                 
                 // Start monitoring after initial instruction
@@ -347,7 +350,7 @@
                     startDistanceBasedNavigation();
                 }, 2000);
                 
-            }, 1000);
+            }, 3500); // Increased delay to let "Voice navigation enabled" finish
         }
 
         // Stop navigation
@@ -394,6 +397,26 @@
                     const announcement = new SpeechSynthesisUtterance('Voice navigation enabled');
                     announcement.rate = isMobileDevice ? 0.9 : 1.0;
                     window.speechSynthesis.speak(announcement);
+                    
+                    // Track when announcement ends to better time the first instruction
+                    announcement.onend = () => {
+                        console.log('Finished announcing voice enabled');
+                        // If route is ready, speak first instruction now
+                        if (directionsReady) {
+                            setTimeout(() => {
+                                const firstInstruction = getCurrentInstruction();
+                                if (firstInstruction && firstInstruction.length > 8) {
+                                    console.log('Speaking first instruction after announcement:', firstInstruction);
+                                    speakText(firstInstruction, true); // Don't cancel
+                                }
+                                
+                                // Start distance monitoring
+                                setTimeout(() => {
+                                    startDistanceBasedNavigation();
+                                }, 2000);
+                            }, 500); // Small gap between announcement and first instruction
+                        }
+                    };
                 } catch (e) {
                     console.error('Error with announcement:', e);
                 }
@@ -402,11 +425,6 @@
                     setTimeout(() => {
                         updateMessage('Waiting for route to load...');
                     }, 2000);
-                } else {
-                    // Start navigation after announcement
-                    setTimeout(() => {
-                        startTurnByTurnNavigation();
-                    }, 2500);
                 }
             } else {
                 updateMessage('Voice navigation disabled');
