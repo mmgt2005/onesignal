@@ -131,62 +131,79 @@
             }
         }
 
-        // Simplified mobile speech - faster speech, longer timeout, immediate start
+        // Prime speech engine on mobile to reduce delays
+        let speechEnginePrimed = false;
+        
+        function primeSpeechEngine() {
+            if (!isMobileDevice || speechEnginePrimed) return;
+            
+            try {
+                // Create a silent utterance to initialize the engine
+                const primeUtterance = new SpeechSynthesisUtterance(' ');
+                primeUtterance.volume = 0;
+                primeUtterance.rate = 1.0;
+                
+                primeUtterance.onend = () => {
+                    speechEnginePrimed = true;
+                    console.log('MOBILE: Speech engine primed');
+                };
+                
+                primeUtterance.onerror = () => {
+                    speechEnginePrimed = true;
+                };
+                
+                window.speechSynthesis.speak(primeUtterance);
+                
+            } catch (e) {
+                console.log('Speech priming failed:', e);
+                speechEnginePrimed = true;
+            }
+        }
+
+        // Ultra-fast mobile speech - no delays
         function speakOnMobile(text) {
             if (!isMobileDevice || !speechActive || !text) return;
             
             const cleanText = text.trim();
             
-            // Simple duplicate check
             if (mobileSpokenInstructions.has(cleanText)) {
                 console.log('MOBILE BLOCKED: Already spoken -', cleanText);
                 return;
             }
             
-            // Don't speak if currently speaking
             if (mobileSpeechInProgress) {
                 console.log('MOBILE BLOCKED: Speech in progress');
                 return;
             }
             
-            console.log('MOBILE SPEAKING:', cleanText);
+            console.log('MOBILE SPEAKING IMMEDIATELY:', cleanText);
             
-            // Mark as spoken immediately
             mobileSpeechInProgress = true;
             mobileSpokenInstructions.set(cleanText, Date.now());
             
-            // Force stop any existing speech
-            try {
-                if (window.speechSynthesis.speaking) {
-                    window.speechSynthesis.cancel();
-                }
-            } catch (e) {
-                console.log('Cancel error:', e);
+            // Force cancel any existing speech
+            if (window.speechSynthesis.speaking) {
+                window.speechSynthesis.cancel();
             }
             
-            // Start speaking immediately - no delay
-            if (!speechActive) {
-                mobileSpeechInProgress = false;
-                return;
-            }
-            
+            // Speak immediately with no setTimeout delay at all
             try {
                 const utterance = new SpeechSynthesisUtterance(cleanText);
                 utterance.lang = 'en-US';
-                utterance.rate = 1.0; // Normal speaking speed
+                utterance.rate = 1.1; // Slightly faster than normal
                 utterance.volume = 1.0;
                 utterance.pitch = 1.0;
                 
                 let finished = false;
                 
                 utterance.onstart = function() {
-                    console.log('MOBILE: Started speaking immediately');
+                    console.log('MOBILE: Speech started instantly');
                 };
                 
                 utterance.onend = function() {
                     if (!finished) {
                         finished = true;
-                        console.log('MOBILE: Speech finished');
+                        console.log('MOBILE: Speech completed');
                         mobileSpeechInProgress = false;
                     }
                 };
@@ -199,20 +216,20 @@
                     }
                 };
                 
-                // Extended timeout for longer instructions
+                // Long timeout for full instruction completion
                 setTimeout(() => {
                     if (!finished) {
                         finished = true;
-                        console.log('MOBILE: Extended timeout (20s)');
+                        console.log('MOBILE: 25 second timeout');
                         mobileSpeechInProgress = false;
                     }
-                }, 20000); // 20 second timeout for longer instructions
+                }, 25000); // 25 second timeout
                 
-                // Speak immediately
+                // Speak with zero delay
                 window.speechSynthesis.speak(utterance);
                 
             } catch (error) {
-                console.error('MOBILE: Speech creation error:', error);
+                console.error('MOBILE: Immediate speech error:', error);
                 mobileSpeechInProgress = false;
             }
         }
@@ -526,6 +543,11 @@
         function toggleVoiceNavigation() {
             console.log('Voice button clicked, current state:', speechActive);
             
+            // Prime speech engine on first interaction (mobile)
+            if (isMobileDevice && !speechEnginePrimed) {
+                primeSpeechEngine();
+            }
+            
             speechActive = !speechActive;
             
             if (speechActive) {
@@ -535,20 +557,20 @@
                 } else {
                     updateMessage('Voice navigation enabled', 'high');
                     
-                    // Start speaking immediately - no delay
+                    // Speak immediately with no delay
                     speakInstruction('Voice navigation enabled');
                     
-                    // For mobile: start checking immediately but frequently
+                    // For mobile: ultra-fast checking
                     if (isMobileDevice) {
-                        const fastCheck = () => {
+                        const ultraFastCheck = () => {
                             if (!mobileSpeechInProgress) {
-                                console.log('MOBILE: Speech finished, starting navigation');
+                                console.log('MOBILE: Ready for navigation');
                                 startTurnByTurnNavigation();
                             } else {
-                                setTimeout(fastCheck, 500); // Check every 500ms
+                                setTimeout(ultraFastCheck, 250); // Check every 250ms
                             }
                         };
-                        setTimeout(fastCheck, 1000); // Start checking after 1 second
+                        setTimeout(ultraFastCheck, 500); // Start checking after 500ms
                     } else {
                         setTimeout(() => {
                             startTurnByTurnNavigation();
@@ -663,6 +685,18 @@
             const voiceBtn = document.getElementById('voice-button');
             if (voiceBtn) {
                 voiceBtn.addEventListener('click', toggleVoiceNavigation);
+                
+                // Prime speech engine on mobile when page loads
+                if (isMobileDevice) {
+                    // Prime on first user interaction with the page
+                    const primeOnInteraction = () => {
+                        primeSpeechEngine();
+                        document.removeEventListener('touchstart', primeOnInteraction);
+                        document.removeEventListener('click', primeOnInteraction);
+                    };
+                    document.addEventListener('touchstart', primeOnInteraction);
+                    document.addEventListener('click', primeOnInteraction);
+                }
             }
         });
 
