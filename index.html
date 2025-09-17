@@ -160,78 +160,143 @@
             }
         }
 
-        // Ultra-fast mobile speech - no delays
-        function speakOnMobile(text) {
+        // MOBILE-ONLY: Ultra-simple speech system with maximum protection
+        let mobileOnlySpeechQueue = [];
+        let mobileProcessingQueue = false;
+        
+        function addToMobileSpeechQueue(text) {
             if (!isMobileDevice || !speechActive || !text) return;
             
             const cleanText = text.trim();
             
+            // Never add duplicates to queue
             if (mobileSpokenInstructions.has(cleanText)) {
-                console.log('MOBILE BLOCKED: Already spoken -', cleanText);
+                console.log('MOBILE: Duplicate blocked from queue -', cleanText);
                 return;
             }
             
-            if (mobileSpeechInProgress) {
-                console.log('MOBILE BLOCKED: Speech in progress');
+            // Never add if already in queue
+            if (mobileOnlySpeechQueue.includes(cleanText)) {
+                console.log('MOBILE: Already in queue -', cleanText);
                 return;
             }
             
-            console.log('MOBILE SPEAKING IMMEDIATELY:', cleanText);
+            console.log('MOBILE: Adding to queue -', cleanText);
+            mobileOnlySpeechQueue.push(cleanText);
             
+            // Process queue if not already processing
+            if (!mobileProcessingQueue) {
+                processMobileSpeechQueue();
+            }
+        }
+        
+        function processMobileSpeechQueue() {
+            if (!isMobileDevice || !speechActive || mobileProcessingQueue || mobileOnlySpeechQueue.length === 0) {
+                return;
+            }
+            
+            mobileProcessingQueue = true;
+            const textToSpeak = mobileOnlySpeechQueue.shift();
+            
+            console.log('MOBILE: Processing queue item -', textToSpeak);
+            
+            // Mark as spoken immediately to prevent any duplicates
+            mobileSpokenInstructions.set(textToSpeak, Date.now());
             mobileSpeechInProgress = true;
-            mobileSpokenInstructions.set(cleanText, Date.now());
             
-            // Force cancel any existing speech
-            if (window.speechSynthesis.speaking) {
-                window.speechSynthesis.cancel();
+            // Cancel any existing speech
+            try {
+                if (window.speechSynthesis.speaking) {
+                    window.speechSynthesis.cancel();
+                }
+            } catch (e) {
+                console.log('Cancel error:', e);
             }
             
-            // Speak immediately with no setTimeout delay at all
             try {
-                const utterance = new SpeechSynthesisUtterance(cleanText);
+                const utterance = new SpeechSynthesisUtterance(textToSpeak);
                 utterance.lang = 'en-US';
-                utterance.rate = 1.1; // Slightly faster than normal
+                utterance.rate = 0.9; // Slightly slower for clarity
                 utterance.volume = 1.0;
                 utterance.pitch = 1.0;
                 
-                let finished = false;
+                let speechCompleted = false;
                 
                 utterance.onstart = function() {
-                    console.log('MOBILE: Speech started instantly');
+                    console.log('MOBILE: Queue speech started -', textToSpeak);
                 };
                 
                 utterance.onend = function() {
-                    if (!finished) {
-                        finished = true;
-                        console.log('MOBILE: Speech completed');
+                    if (!speechCompleted) {
+                        speechCompleted = true;
+                        console.log('MOBILE: Queue speech completed -', textToSpeak);
                         mobileSpeechInProgress = false;
+                        mobileProcessingQueue = false;
+                        
+                        // Process next item in queue after delay
+                        setTimeout(() => {
+                            if (mobileOnlySpeechQueue.length > 0) {
+                                processMobileSpeechQueue();
+                            }
+                        }, 1000); // 1 second gap between instructions
                     }
                 };
                 
                 utterance.onerror = function(event) {
-                    if (!finished) {
-                        finished = true;
-                        console.log('MOBILE: Speech error -', event.error);
+                    if (!speechCompleted) {
+                        speechCompleted = true;
+                        console.log('MOBILE: Queue speech error -', event.error, textToSpeak);
                         mobileSpeechInProgress = false;
+                        mobileProcessingQueue = false;
+                        
+                        // Continue processing queue on error
+                        setTimeout(() => {
+                            if (mobileOnlySpeechQueue.length > 0) {
+                                processMobileSpeechQueue();
+                            }
+                        }, 1000);
                     }
                 };
                 
-                // Long timeout for full instruction completion
+                // Extended timeout for complete instruction
                 setTimeout(() => {
-                    if (!finished) {
-                        finished = true;
-                        console.log('MOBILE: 25 second timeout');
+                    if (!speechCompleted) {
+                        speechCompleted = true;
+                        console.log('MOBILE: Queue timeout -', textToSpeak);
                         mobileSpeechInProgress = false;
+                        mobileProcessingQueue = false;
+                        window.speechSynthesis.cancel();
+                        
+                        // Continue queue after timeout
+                        setTimeout(() => {
+                            if (mobileOnlySpeechQueue.length > 0) {
+                                processMobileSpeechQueue();
+                            }
+                        }, 1000);
                     }
-                }, 25000); // 25 second timeout
+                }, 30000); // 30 second timeout
                 
-                // Speak with zero delay
+                // Speak the instruction
                 window.speechSynthesis.speak(utterance);
                 
             } catch (error) {
-                console.error('MOBILE: Immediate speech error:', error);
+                console.error('MOBILE: Queue speech creation error:', error);
                 mobileSpeechInProgress = false;
+                mobileProcessingQueue = false;
+                
+                // Continue processing queue on error
+                setTimeout(() => {
+                    if (mobileOnlySpeechQueue.length > 0) {
+                        processMobileSpeechQueue();
+                    }
+                }, 1000);
             }
+        }
+
+        // Updated mobile speech function to use queue
+        function speakOnMobile(text) {
+            if (!isMobileDevice || !speechActive || !text) return;
+            addToMobileSpeechQueue(text);
         }
 
         // Desktop speech function
@@ -456,8 +521,9 @@
             distanceCheckInterval = setInterval(() => {
                 if (!speechActive || !lastUserLocation) return;
                 
-                // Skip if mobile is speaking
-                if (isMobileDevice && mobileSpeechInProgress) {
+                // For mobile: skip entirely if processing speech queue
+                if (isMobileDevice && (mobileSpeechInProgress || mobileProcessingQueue)) {
+                    console.log('MOBILE: Skipping distance check - speech system busy');
                     return;
                 }
                 
@@ -486,7 +552,7 @@
                     }
                 }
                 
-            }, isMobileDevice ? 3000 : 2000); // Faster checking - 3 seconds on mobile
+            }, isMobileDevice ? 5000 : 2000); // 5 second intervals on mobile to reduce interference
         }
 
         function startTurnByTurnNavigation() {
@@ -535,6 +601,9 @@
             if (isMobileDevice) {
                 mobileSpokenInstructions.clear();
                 mobileSpeechInProgress = false;
+                mobileOnlySpeechQueue = []; // Clear the queue
+                mobileProcessingQueue = false;
+                console.log('MOBILE: Cleared all speech systems');
             }
             
             document.getElementById('distance-info').classList.add('hidden');
