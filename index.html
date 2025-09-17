@@ -112,9 +112,23 @@
             }
         }
 
-        // FIXED: Mobile-optimized speech function with better coordination
+        // FIXED: Mobile-optimized speech function with better compatibility
         function speakText(text, shouldUpdateMessage = true) {
-            if (!speechActive || !text) return;
+            if (!text) return;
+            
+            // Check if speech synthesis is available
+            if (!('speechSynthesis' in window)) {
+                console.error('Speech synthesis not supported');
+                if (shouldUpdateMessage) {
+                    updateMessage(text);
+                }
+                return;
+            }
+            
+            // Only check speechActive for actual navigation instructions
+            if (!speechActive && text !== 'Voice navigation enabled' && text !== 'Please wait for the route to load.') {
+                return;
+            }
             
             const textKey = text.toLowerCase().trim();
             
@@ -124,84 +138,70 @@
                 return;
             }
             
-            console.log('Speaking:', text);
+            console.log('Attempting to speak:', text);
             spokenInstructions.add(textKey);
             
-            // Cancel any ongoing speech
-            window.speechSynthesis.cancel();
+            // Update message immediately for better UX
+            if (shouldUpdateMessage) {
+                updateMessage(text);
+                console.log('Message updated:', text);
+            }
             
             try {
+                // Cancel any ongoing speech first
+                window.speechSynthesis.cancel();
+                
+                // Create utterance with simple settings
                 const utterance = new SpeechSynthesisUtterance(text);
-                utterance.rate = isMobileDevice ? 0.85 : 0.9;
-                utterance.volume = 1.0;
+                utterance.rate = 0.9;
                 utterance.pitch = 1.0;
+                utterance.volume = 1.0;
+                utterance.lang = 'en-US';
                 
-                // Track speaking state
-                let speechStarted = false;
-                let messageUpdated = false;
-                
-                // For mobile: Use multiple fallback strategies
-                if (isMobileDevice && shouldUpdateMessage) {
-                    // Strategy 1: Update message immediately for better UX
-                    updateMessage(text);
-                    messageUpdated = true;
-                    console.log('Mobile: Message updated immediately');
-                    
-                    // Strategy 2: Also set a backup timeout in case speech is delayed
-                    const backupTimeout = setTimeout(() => {
-                        if (!messageUpdated) {
-                            updateMessage(text);
-                            messageUpdated = true;
-                            console.log('Mobile: Backup message update triggered');
-                        }
-                    }, 500);
-                    
-                    utterance.onstart = () => {
-                        clearTimeout(backupTimeout);
-                        speechStarted = true;
-                        console.log('Mobile: Speech actually started');
-                    };
-                } else if (!isMobileDevice && shouldUpdateMessage) {
-                    // Desktop: Use reliable onstart event
-                    utterance.onstart = () => {
-                        updateMessage(text);
-                        speechStarted = true;
-                        console.log('Desktop: Speech started and message updated');
-                    };
-                }
+                // Simple event handlers
+                utterance.onstart = () => {
+                    console.log('Speech started:', text);
+                    isCurrentlySpeaking = true;
+                };
                 
                 utterance.onend = () => {
-                    console.log('Speech completed');
+                    console.log('Speech ended:', text);
                     isCurrentlySpeaking = false;
                 };
                 
-                utterance.onerror = (e) => {
-                    console.log('Speech error:', e.error);
+                utterance.onerror = (event) => {
+                    console.error('Speech error:', event.error, 'for text:', text);
                     isCurrentlySpeaking = false;
-                    // Ensure message is shown on error
-                    if (shouldUpdateMessage && !messageUpdated) {
-                        updateMessage(text);
-                    }
                 };
                 
-                // Mobile Safari fix: Add to queue after small delay
+                // For mobile: Use a different approach
                 if (isMobileDevice) {
-                    setTimeout(() => {
-                        isCurrentlySpeaking = true;
+                    // Mobile needs user interaction first - queue the speech
+                    const speak = () => {
+                        window.speechSynthesis.cancel();
                         window.speechSynthesis.speak(utterance);
+                        console.log('Mobile: Speech queued');
+                    };
+                    
+                    // Try to speak immediately
+                    speak();
+                    
+                    // If speech hasn't started after a delay, try again
+                    setTimeout(() => {
+                        if (!window.speechSynthesis.speaking) {
+                            console.log('Mobile: Retrying speech');
+                            speak();
+                        }
                     }, 100);
                 } else {
-                    isCurrentlySpeaking = true;
+                    // Desktop: speak directly
                     window.speechSynthesis.speak(utterance);
+                    console.log('Desktop: Speech queued');
                 }
                 
             } catch (error) {
-                console.error('Speech error:', error);
+                console.error('Speech synthesis error:', error);
                 isCurrentlySpeaking = false;
-                // Fallback: always show message on error
-                if (shouldUpdateMessage) {
-                    updateMessage(text);
-                }
             }
         }
 
@@ -428,33 +428,78 @@
 
         function toggleVoiceNavigation() {
             console.log('Voice button clicked');
+            
+            // Check if speech synthesis is supported
+            if (!('speechSynthesis' in window)) {
+                alert('Speech synthesis is not supported on this device/browser. Please use Chrome, Safari, or Edge.');
+                return;
+            }
+            
             speechActive = !speechActive;
             
             if (speechActive) {
+                // Initialize speech with user interaction (required for mobile)
+                initializeSpeechWithUserAction();
+                
                 if (!directionsReady) {
                     updateMessage('Waiting for route to load...');
-                    // Don't speak this message to avoid confusion
                 } else {
-                    // Show message immediately on both mobile and desktop
+                    // Show message and speak
                     updateMessage('Voice navigation enabled');
                     
-                    // Speak after a small delay to ensure message is visible
+                    // Small delay to ensure initialization
                     setTimeout(() => {
-                        speakText('Voice navigation enabled', false); // false = don't update message again
-                    }, 100);
-                    
-                    // Start turn-by-turn navigation after voice enabled message
-                    setTimeout(() => {
-                        startTurnByTurnNavigation();
-                    }, 2500);
+                        speakText('Voice navigation enabled', false);
+                        
+                        // Start navigation after announcement
+                        setTimeout(() => {
+                            startTurnByTurnNavigation();
+                        }, 2000);
+                    }, 200);
                 }
             } else {
                 updateMessage('Voice navigation disabled');
                 stopTurnByTurnNavigation();
-                window.speechSynthesis.cancel();
+                try {
+                    window.speechSynthesis.cancel();
+                } catch (e) {
+                    console.error('Error cancelling speech:', e);
+                }
             }
             
             updateVoiceButtonState();
+        }
+        
+        // Initialize speech with user interaction (required for mobile browsers)
+        function initializeSpeechWithUserAction() {
+            if (!('speechSynthesis' in window)) return;
+            
+            try {
+                // Cancel any pending speech
+                window.speechSynthesis.cancel();
+                
+                // Create a silent utterance to initialize
+                const initUtterance = new SpeechSynthesisUtterance('');
+                initUtterance.volume = 0.01;
+                initUtterance.rate = 1.0;
+                window.speechSynthesis.speak(initUtterance);
+                
+                console.log('Speech synthesis initialized with user action');
+                
+                // Get available voices (might be empty on first call)
+                const voices = window.speechSynthesis.getVoices();
+                console.log('Available voices:', voices.length);
+                
+                // Some browsers load voices asynchronously
+                if (voices.length === 0) {
+                    window.speechSynthesis.onvoiceschanged = () => {
+                        const updatedVoices = window.speechSynthesis.getVoices();
+                        console.log('Voices loaded:', updatedVoices.length);
+                    };
+                }
+            } catch (e) {
+                console.error('Error initializing speech:', e);
+            }
         }
 
         function onGeolocationSuccess(pos){
@@ -550,13 +595,23 @@
                 voiceBtn.addEventListener('click', toggleVoiceNavigation);
             }
             
-            // Mobile: Initialize speech synthesis early
-            if (isMobileDevice && 'speechSynthesis' in window) {
-                // Warm up the speech synthesis
-                const warmup = new SpeechSynthesisUtterance('');
-                warmup.volume = 0;
-                window.speechSynthesis.speak(warmup);
-                console.log('Mobile: Speech synthesis warmed up');
+            // Check for speech synthesis support
+            if ('speechSynthesis' in window) {
+                console.log('Speech synthesis is supported');
+                
+                // Load voices
+                if (window.speechSynthesis.getVoices().length === 0) {
+                    window.speechSynthesis.addEventListener('voiceschanged', function() {
+                        const voices = window.speechSynthesis.getVoices();
+                        console.log('Voices loaded:', voices.length);
+                        
+                        // Log available English voices for debugging
+                        const englishVoices = voices.filter(v => v.lang.startsWith('en'));
+                        console.log('English voices available:', englishVoices.map(v => v.name));
+                    });
+                }
+            } else {
+                console.error('Speech synthesis not supported in this browser');
             }
         });
 
