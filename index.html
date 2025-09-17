@@ -1,231 +1,740 @@
 <!DOCTYPE html>
 <html lang="en">
-	<head>
-		<meta charset="UTF-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-		<title>Document</title>
-		<script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
-		<script>
-			window.OneSignalDeferred = window.OneSignalDeferred || [];
-			OneSignalDeferred.push(async function (OneSignal) {
-				const urlParams = new URLSearchParams(window.location.search);
-				const appId = urlParams.get("appId");
-				const email = urlParams.get("email");
-				const rowid = urlParams.get("rowid");
-				
-				await OneSignal.init({
-					appId: appId,
-				});
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Geofence App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.10.0/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.10.0/mapbox-gl.css" rel="stylesheet" />
+    <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-directions/v4.1.0/mapbox-gl-directions.js"></script>
+    <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-directions/v4.1.0/mapbox-gl-directions.css" type="text/css" />
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        #map { width: 100%; height: 100%; }
+        .mapboxgl-ctrl-directions {
+            top: 1rem; left: 1rem; right: auto;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1),0 2px 4px -2px rgba(0,0,0,0.1);
+        }
+        .mapbox-directions-step-active {
+            background-color:#007cbf!important; color:white!important; font-weight:800;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen">
+    <div id="map" class="flex-1"></div>
+    <div class="p-4 bg-gray-900 text-white shadow-lg z-10 flex flex-col sm:flex-row items-center justify-between rounded-t-xl">
+        <div class="flex-1 mr-12">
+            <p id="message" class="text-xl font-bold mb-1">Please grant location permission to start...</p>
+            <p id="distance-info" class="text-xs text-green-400 hidden mb-1"></p>
+            <p id="job-message" class="text-xs text-gray-400 hidden"></p>
+        </div>
+        <div class="flex items-center space-x-3 mt-2 sm:mt-0">
+            <button id="arrived-button" class="bg-green-500 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-green-600 transition-colors hidden">Job Complete</button>
+            <button id="voice-button" class="bg-blue-500 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-blue-600 transition-colors">🗣️</button>
+        </div>
+    </div>
 
-				let subscriptionConfirmed = false;
-				let storedSubscriptionId = null;
-				
-				// Function to show the Next button
-				function showNextButton() {
-					console.log("Showing Next button - current stored ID:", storedSubscriptionId);
-					document.getElementById("success-display").textContent = "Great! Push notifications are enabled. Click 'Next' to continue.";
-					document.getElementById("success-display").style.background = "#e3f2fd";
-					document.getElementById("success-display").style.borderColor = "#2196f3";
-					document.getElementById("success-display").style.display = "block";
-					document.getElementById("next-button").style.display = "block";
-					
-					const customLinkContainer = document.querySelector(".onesignal-customlink-container");
-					if (customLinkContainer) {
-						customLinkContainer.style.display = "none";
-					}
-				}
-				
-				// Function to manually send webhook
-				async function sendWebhookManually() {
-					console.log("=== MANUAL WEBHOOK SEND ===");
-					console.log("Stored subscription ID:", storedSubscriptionId);
-					
-					try {
-						let subscriptionId = storedSubscriptionId;
-						
-						// If we don't have stored ID, try the API methods with retry
-						if (!subscriptionId) {
-							console.log("No stored ID, trying API methods with retries...");
-							
-							for (let attempt = 1; attempt <= 5; attempt++) {
-								console.log(`Attempt ${attempt} to get subscription ID...`);
-								
-								// Method 1: Try getting push subscription
-								try {
-									const pushSubscription = await OneSignal.User.PushSubscription.getById();
-									if (pushSubscription && pushSubscription.id) {
-										subscriptionId = pushSubscription.id;
-										console.log("SUCCESS - Push subscription:", pushSubscription);
-										break;
-									}
-								} catch (e) {
-									console.log("Push subscription method failed:", e);
-								}
-								
-								// Method 2: Try getting OneSignal user ID
-								if (!subscriptionId) {
-									try {
-										const userId = await OneSignal.User.getOnesignalId();
-										if (userId) {
-											subscriptionId = userId;
-											console.log("SUCCESS - OneSignal user ID:", userId);
-											break;
-										}
-									} catch (e) {
-										console.log("User ID method failed:", e);
-									}
-								}
-								
-								// Wait before next attempt
-								if (!subscriptionId && attempt < 5) {
-									console.log("Waiting 2 seconds before next attempt...");
-									await new Promise(resolve => setTimeout(resolve, 2000));
-								}
-							}
-						}
-						
-						console.log("FINAL subscription ID for webhook:", subscriptionId);
-						
-						if (subscriptionId) {
-							const webhookUrl = "https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/2da69580-f8b2-40a1-91a6-a131887981bf";
-							
-							const webhookData = {
-								rowid: rowid,
-								email: email,
-								subscriptionId: subscriptionId
-							};
-							
-							console.log("Sending webhook with data:", webhookData);
-							
-							const response = await fetch(webhookUrl, {
-								method: "POST",
-								headers: {
-									"Content-Type": "application/json",
-								},
-								body: JSON.stringify(webhookData),
-							});
-							
-							console.log("Webhook response status:", response.status);
-							
-							// Handle both JSON and text responses
-							let responseData;
-							const contentType = response.headers.get("content-type");
-							console.log("Response content-type:", contentType);
-							
-							try {
-								if (contentType && contentType.includes("application/json")) {
-									responseData = await response.json();
-								} else {
-									responseData = await response.text();
-								}
-								console.log("Webhook response data:", responseData);
-							} catch (parseError) {
-								console.log("Could not parse response, treating as success:", parseError);
-								responseData = "Response received successfully";
-							}
-							
-							if (response.ok) {
-								document.getElementById("success-display").textContent = "Done! Subscription complete. Please close this window.";
-								document.getElementById("success-display").style.background = "#e8f5e8";
-								document.getElementById("success-display").style.borderColor = "#4caf50";
-								document.getElementById("success-display").style.display = "block";
-								document.getElementById("next-button").style.display = "none";
-								document.querySelector(".onesignal-customlink-container").style.display = "none";
-							} else {
-								throw new Error(`Webhook failed with status: ${response.status}`);
-							}
-							
-						} else {
-							console.log("ERROR: No subscription ID found after all attempts");
-							throw new Error("No subscription ID found after all attempts");
-						}
-						
-					} catch (error) {
-						console.error("Manual webhook error:", error);
-						document.getElementById("success-display").textContent = "Could not retrieve subscription ID. Please try again or refresh the page.";
-						document.getElementById("success-display").style.background = "#fbe8e8";
-						document.getElementById("success-display").style.borderColor = "#d32f2f";
-						document.getElementById("success-display").style.display = "block";
-					}
-				}
-				
-				// Add click listener for next button
-				document.getElementById("next-button").addEventListener("click", sendWebhookManually);
-				
-				// Event 1: PushSubscription change
-				OneSignal.User.PushSubscription.addEventListener("change", (event) => {
-					console.log("=== PUSHSUBSCRIPTION CHANGE EVENT ===");
-					console.log("event.current.optedIn:", event.current.optedIn);
-					console.log("event.current.id:", event.current.id);
-					
-					// Store the ID if it exists
-					if (event.current.id) {
-						storedSubscriptionId = event.current.id;
-						console.log("STORED subscription ID from PushSubscription change:", storedSubscriptionId);
-					}
-					
-					if (event.current.optedIn && !subscriptionConfirmed) {
-						subscriptionConfirmed = true;
-						showNextButton();
-					}
-				});
-				
-				// Event 2: User change event
-				OneSignal.User.addEventListener("change", (event) => {
-					console.log("=== USER CHANGE EVENT ===");
-					console.log("event.current:", event.current);
-					if (event.current.onesignalId) {
-						storedSubscriptionId = event.current.onesignalId;
-						console.log("STORED subscription ID from User change:", storedSubscriptionId);
-					}
-				});
-				
-				// Event 3: Permission change
-				try {
-					OneSignal.Notifications.addEventListener("permissionChange", async (granted) => {
-						console.log("=== PERMISSION CHANGE EVENT ===");
-						console.log("Permission granted:", granted);
-						
-						if (granted) {
-							// Wait a bit for subscription to be created
-							setTimeout(async () => {
-								try {
-									const pushSub = await OneSignal.User.PushSubscription.getById();
-									const userId = await OneSignal.User.getOnesignalId();
-									console.log("After permission - pushSub:", pushSub);
-									console.log("After permission - userId:", userId);
-									
-									if (pushSub && pushSub.id) {
-										storedSubscriptionId = pushSub.id;
-										console.log("STORED subscription ID from permission change:", storedSubscriptionId);
-									} else if (userId) {
-										storedSubscriptionId = userId;
-										console.log("STORED user ID from permission change:", storedSubscriptionId);
-									}
-									
-									if (!subscriptionConfirmed && granted) {
-										subscriptionConfirmed = true;
-										showNextButton();
-									}
-								} catch (e) {
-									console.log("Error getting subscription after permission:", e);
-								}
-							}, 2000);
-						}
-					});
-				} catch (e) {
-					console.log("Could not add permission listener:", e);
-				}
-			});
-		</script>
-	</head>
-	<body>
-		<div class="onesignal-customlink-container"></div>
-		<div id="success-display" style="display: none; margin-top: 20px; padding: 10px; background: #e8f5e8; border: 1px solid #4caf50; border-radius: 4px"></div>
-		
-		<!-- Next button for manual webhook sending -->
-		<button id="next-button" style="display: none; margin-top: 10px; padding: 10px 20px; border: none; border-radius: 4px; background-color: #007bff; color: white; cursor: pointer; font-size: 16px;">
-			Next
-		</button>
-	</body>
+    <script>
+        console.log('Geofence app starting...');
+        
+        mapboxgl.accessToken = 'pk.eyJ1IjoibW1ndDIwMDUiLCJhIjoiY21laW4xY2dqMDQ1NDJpcHdqOW1hMDk3ZCJ9.aSTR_k5xhzGJNPPAVAFnlw';
+        const WEBHOOK_URL = 'https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/5322e093-74bf-4793-92fa-ef5713bf8ab1';
+
+        let map, vehicleMarker, geofence, directions;
+        let isInsideGeofence = false, jobTitle, geofenceLocation;
+        let isInitialLoad = true, speechActive = false;
+        let directionsReady = false;
+        let currentRoute = null;
+        
+        // Speech management
+        let isCurrentlySpeaking = false;
+        let spokenInstructions = new Set();
+        let isMobileDevice = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        let mobileSpokenInstructions = new Map();
+        let mobileSpeechInProgress = false;
+        
+        // Distance-based navigation
+        const INSTRUCTION_TRIGGER_DISTANCE = 300; // feet
+        let routeSteps = [];
+        let currentStepIndex = 0;
+        let lastUserLocation = null;
+        let distanceCheckInterval = null;
+        let nextInstructionTriggered = new Set();
+
+        console.log('Variables initialized, mobile device:', isMobileDevice);
+
+        function getUrlParams() {
+            const params = {};
+            new URLSearchParams(window.location.search).forEach((value, key) => {
+                params[key] = (key === 'lat' || key === 'lon' || key === 'radius') ? parseFloat(value) : value;
+            });
+            return params;
+        }
+
+        async function sendWebhook(status,email,latitude,longitude){
+            if(!WEBHOOK_URL){console.warn("Webhook URL not configured.");return;}
+            try{
+                const data={status,latitude,longitude,email,job:jobTitle,timestamp:new Date().toISOString()};
+                const r=await fetch(WEBHOOK_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+                if(!r.ok)console.error('Webhook failed',r.status);
+            }catch(e){console.error('Error sending webhook:',e);}
+        }
+
+        function updateMessage(text, priority = 'normal', temporary = false) {
+            const msg = document.getElementById('message');
+            
+            if (speechActive && priority !== 'high' && (isCurrentlySpeaking || (isMobileDevice && mobileSpeechInProgress))) {
+                console.log('Message update queued (speech active):', text);
+                return;
+            }
+            
+            msg.textContent = text;
+            
+            if (temporary && !speechActive) {
+                setTimeout(() => {
+                    if (!speechActive && !isCurrentlySpeaking && !(isMobileDevice && mobileSpeechInProgress)) {
+                        msg.textContent = 'Vehicle is on its way to the job location...';
+                    }
+                }, 5000);
+            }
+        }
+
+        function checkGeofence(email,latitude,longitude){
+            if(!geofence||!vehicleMarker)return;
+            
+            const jobMsg=document.getElementById('job-message');
+            const point=turf.point([longitude,latitude]);
+            const inside=turf.booleanPointInPolygon(point,geofence);
+            
+            if(jobTitle&&jobTitle!=='a job'){
+                jobMsg.textContent=`Job: ${jobTitle}`;
+                jobMsg.classList.remove('hidden');
+            } else {
+                jobMsg.classList.add('hidden');
+            }
+
+            if(inside&&!isInsideGeofence){
+                sendWebhook('inside',email,latitude,longitude);
+                isInsideGeofence=true;
+                updateMessage('Vehicle is at the job location!', 'high');
+            }
+            else if(!inside&&isInsideGeofence){
+                sendWebhook('outside',email,latitude,longitude);
+                isInsideGeofence=false;
+                updateMessage('Vehicle has left the job location!', 'high');
+            }
+            else if(!isInsideGeofence && !speechActive && !isCurrentlySpeaking){
+                updateMessage('Vehicle is on its way to the job location...');
+            }
+        }
+
+        // Simplified mobile speech - faster and more reliable
+        function speakOnMobile(text) {
+            if (!isMobileDevice || !speechActive || !text) return;
+            
+            const cleanText = text.trim();
+            
+            // Simple duplicate check
+            if (mobileSpokenInstructions.has(cleanText)) {
+                console.log('MOBILE BLOCKED: Already spoken -', cleanText);
+                return;
+            }
+            
+            // Don't speak if currently speaking
+            if (mobileSpeechInProgress) {
+                console.log('MOBILE BLOCKED: Speech in progress');
+                return;
+            }
+            
+            console.log('MOBILE SPEAKING:', cleanText);
+            
+            // Mark as spoken immediately
+            mobileSpeechInProgress = true;
+            mobileSpokenInstructions.set(cleanText, Date.now());
+            
+            // Force stop any existing speech
+            try {
+                if (window.speechSynthesis.speaking) {
+                    window.speechSynthesis.cancel();
+                }
+            } catch (e) {
+                console.log('Cancel error:', e);
+            }
+            
+            // Minimal delay before speaking
+            setTimeout(() => {
+                if (!speechActive) {
+                    mobileSpeechInProgress = false;
+                    return;
+                }
+                
+                try {
+                    const utterance = new SpeechSynthesisUtterance(cleanText);
+                    utterance.lang = 'en-US';
+                    utterance.rate = 0.8; // Faster speech
+                    utterance.volume = 1.0;
+                    utterance.pitch = 1.0;
+                    
+                    let finished = false;
+                    
+                    utterance.onstart = function() {
+                        console.log('MOBILE: Started speaking');
+                    };
+                    
+                    utterance.onend = function() {
+                        if (!finished) {
+                            finished = true;
+                            console.log('MOBILE: Speech finished');
+                            mobileSpeechInProgress = false;
+                        }
+                    };
+                    
+                    utterance.onerror = function(event) {
+                        if (!finished) {
+                            finished = true;
+                            console.log('MOBILE: Speech error -', event.error);
+                            mobileSpeechInProgress = false;
+                        }
+                    };
+                    
+                    // Safety timeout - shorter for faster response
+                    setTimeout(() => {
+                        if (!finished) {
+                            finished = true;
+                            console.log('MOBILE: Safety timeout');
+                            mobileSpeechInProgress = false;
+                        }
+                    }, 10000);
+                    
+                    // Speak immediately
+                    window.speechSynthesis.speak(utterance);
+                    
+                } catch (error) {
+                    console.error('MOBILE: Speech creation error:', error);
+                    mobileSpeechInProgress = false;
+                }
+                
+            }, 300); // Much shorter delay
+        }
+
+        // Desktop speech function
+        function speakOnDesktop(text) {
+            if (isMobileDevice || !speechActive || !text) return;
+            
+            const hash = text.toLowerCase().trim();
+            
+            if (spokenInstructions.has(hash)) {
+                console.log('DESKTOP: Already spoken -', text);
+                return;
+            }
+            
+            if (isCurrentlySpeaking) {
+                console.log('DESKTOP: Currently speaking, skipping -', text);
+                return;
+            }
+            
+            console.log('DESKTOP: Speaking -', text);
+            isCurrentlySpeaking = true;
+            spokenInstructions.add(hash);
+            
+            if (window.speechSynthesis.speaking) {
+                window.speechSynthesis.cancel();
+            }
+            
+            setTimeout(() => {
+                if (!speechActive) {
+                    isCurrentlySpeaking = false;
+                    return;
+                }
+                
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'en-US';
+                utterance.rate = 0.8;
+                utterance.volume = 0.9;
+                
+                utterance.onstart = () => {
+                    console.log('DESKTOP: Speech started');
+                };
+                
+                utterance.onend = () => {
+                    console.log('DESKTOP: Speech ended');
+                    isCurrentlySpeaking = false;
+                };
+                
+                utterance.onerror = (e) => {
+                    console.log('DESKTOP: Speech error -', e.error);
+                    isCurrentlySpeaking = false;
+                };
+                
+                window.speechSynthesis.speak(utterance);
+                
+            }, 500);
+        }
+
+        // Unified speech function
+        function speakInstruction(text) {
+            if (!text || !speechActive) return;
+            
+            if (isMobileDevice) {
+                speakOnMobile(text);
+            } else {
+                speakOnDesktop(text);
+            }
+        }
+
+        function updateVoiceButtonState() {
+            const btn = document.getElementById('voice-button');
+            if (!btn) return;
+            
+            if (!directionsReady) {
+                btn.textContent = '⏳';
+                btn.className = 'bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors';
+                btn.title = 'Waiting for route to load...';
+            } else if (speechActive) {
+                btn.textContent = '🔇';
+                btn.className = 'bg-green-500 hover:bg-green-600 ring-4 ring-green-400 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors';
+                btn.title = 'Voice navigation ON - Click to disable';
+            } else {
+                btn.textContent = '🗣️';
+                btn.className = 'bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors';
+                btn.title = 'Click to enable voice navigation';
+            }
+        }
+
+        function calculateDistanceToNextStep(userLocation) {
+            if (!currentRoute || !currentRoute[0] || !routeSteps || currentStepIndex >= routeSteps.length) {
+                return null;
+            }
+
+            try {
+                const currentStep = routeSteps[currentStepIndex];
+                if (!currentStep || !currentStep.maneuver || !currentStep.maneuver.location) {
+                    return null;
+                }
+
+                const stepLocation = currentStep.maneuver.location;
+                const userPoint = turf.point([userLocation.lng, userLocation.lat]);
+                const stepPoint = turf.point(stepLocation);
+                
+                const distanceMeters = turf.distance(userPoint, stepPoint, {units: 'meters'});
+                const distanceFeet = distanceMeters * 3.28084;
+                
+                return {
+                    distance: distanceFeet,
+                    stepIndex: currentStepIndex,
+                    instruction: currentStep.maneuver.instruction,
+                    stepLocation: stepLocation
+                };
+            } catch (error) {
+                console.warn('Error calculating distance:', error);
+                return null;
+            }
+        }
+
+        function updateDistanceInfo(distanceData) {
+            const distanceInfo = document.getElementById('distance-info');
+            if (distanceData && speechActive) {
+                const distanceFeet = Math.round(distanceData.distance);
+                distanceInfo.textContent = `Next turn in ${distanceFeet} feet`;
+                distanceInfo.classList.remove('hidden');
+            } else {
+                distanceInfo.classList.add('hidden');
+            }
+        }
+
+        function extractRouteSteps(route) {
+            const steps = [];
+            if (route && route[0] && route[0].legs) {
+                route[0].legs.forEach(leg => {
+                    if (leg.steps) {
+                        leg.steps.forEach(step => {
+                            if (step.maneuver && step.maneuver.instruction) {
+                                steps.push({
+                                    maneuver: step.maneuver,
+                                    distance: step.distance,
+                                    duration: step.duration
+                                });
+                            }
+                        });
+                    }
+                });
+            }
+            return steps;
+        }
+
+        function getCurrentInstruction() {
+            const activeStep = document.querySelector('.mapbox-directions-step-active') || 
+                              document.querySelector('.mapbox-directions-step.active');
+            
+            if (activeStep) {
+                const instruction = extractInstructionFromStep(activeStep);
+                if (instruction && instruction.length > 8) {
+                    return instruction;
+                }
+            }
+            
+            const allSteps = document.querySelectorAll('.mapbox-directions-step');
+            for (let i = 0; i < Math.min(3, allSteps.length); i++) {
+                const step = allSteps[i];
+                const instruction = extractInstructionFromStep(step);
+                if (instruction && instruction.length > 8) {
+                    return instruction;
+                }
+            }
+            
+            return null;
+        }
+        
+        function extractInstructionFromStep(stepElement) {
+            if (!stepElement) return null;
+            
+            const instructionSelectors = [
+                '.mapbox-directions-step-maneuver-instruction',
+                '.mapboxgl-directions-step-maneuver-instruction',
+                '.mapbox-directions-instruction',
+                '.mapbox-directions-step-content'
+            ];
+            
+            for (const selector of instructionSelectors) {
+                const instructionEl = stepElement.querySelector(selector);
+                if (instructionEl) {
+                    const text = instructionEl.textContent.trim();
+                    if (text.length > 8 && !text.match(/^\d+\.?\d*\s*(km|mi|ft|miles?|minutes?|min)/i)) {
+                        return text;
+                    }
+                }
+            }
+            
+            const stepText = stepElement.textContent.trim();
+            const sentences = stepText.split('.').map(s => s.trim()).filter(s => s.length > 0);
+            
+            for (const sentence of sentences) {
+                if (sentence.match(/^\d+\.?\d*\s*(km|mi|miles?|minutes?|min|ft|feet)/i)) {
+                    continue;
+                }
+                
+                if (sentence.match(/\b(drive|turn|continue|keep|take|merge|exit|head|go|proceed|follow|bear|stay)\b/i) && 
+                    sentence.length > 10) {
+                    return sentence + '.';
+                }
+            }
+            
+            return null;
+        }
+
+        function startDistanceBasedNavigation() {
+            if (!speechActive || !currentRoute) return;
+            
+            console.log('Starting distance-based navigation');
+            
+            routeSteps = extractRouteSteps(currentRoute);
+            currentStepIndex = 0;
+            
+            console.log(`Route has ${routeSteps.length} steps`);
+            
+            if (distanceCheckInterval) {
+                clearInterval(distanceCheckInterval);
+            }
+            
+            distanceCheckInterval = setInterval(() => {
+                if (!speechActive || !lastUserLocation) return;
+                
+                // Skip if mobile is speaking
+                if (isMobileDevice && mobileSpeechInProgress) {
+                    return;
+                }
+                
+                const distanceData = calculateDistanceToNextStep(lastUserLocation);
+                if (!distanceData) return;
+                
+                updateDistanceInfo(distanceData);
+                
+                const stepKey = `${currentStepIndex}_${distanceData.instruction}`;
+                
+                if (distanceData.distance <= INSTRUCTION_TRIGGER_DISTANCE && 
+                    !nextInstructionTriggered.has(stepKey)) {
+                    
+                    console.log(`Triggering instruction at ${Math.round(distanceData.distance)} feet: ${distanceData.instruction}`);
+                    
+                    nextInstructionTriggered.add(stepKey);
+                    updateMessage(distanceData.instruction, 'high');
+                    speakInstruction(distanceData.instruction);
+                }
+                
+                if (distanceData.distance <= 50) {
+                    const nextStepIndex = currentStepIndex + 1;
+                    if (nextStepIndex < routeSteps.length) {
+                        console.log(`Advancing to step ${nextStepIndex}`);
+                        currentStepIndex = nextStepIndex;
+                    }
+                }
+                
+            }, isMobileDevice ? 3000 : 2000); // Faster checking - 3 seconds on mobile
+        }
+
+        function startTurnByTurnNavigation() {
+            if (!speechActive || !directionsReady) return;
+            
+            console.log('Starting turn-by-turn navigation');
+            
+            // Reset tracking
+            spokenInstructions.clear();
+            nextInstructionTriggered.clear();
+            
+            window.speechSynthesis.cancel();
+            
+            setTimeout(() => {
+                const firstInstruction = getCurrentInstruction();
+                if (firstInstruction && firstInstruction.length > 8) {
+                    console.log('Speaking first instruction:', firstInstruction);
+                    updateMessage(firstInstruction, 'high');
+                    speakInstruction(firstInstruction);
+                    
+                    // Mark this instruction as triggered to prevent duplicates
+                    const stepKey = `${currentStepIndex}_${firstInstruction}`;
+                    nextInstructionTriggered.add(stepKey);
+                }
+                
+                // Start distance monitoring sooner
+                setTimeout(() => {
+                    startDistanceBasedNavigation();
+                }, isMobileDevice ? 3000 : 2000); // Reduced from 10 seconds to 3 seconds
+                
+            }, 500); // Reduced delay
+        }
+
+        function stopTurnByTurnNavigation() {
+            console.log('Stopping turn-by-turn navigation');
+            
+            if (distanceCheckInterval) {
+                clearInterval(distanceCheckInterval);
+                distanceCheckInterval = null;
+            }
+            
+            window.speechSynthesis.cancel();
+            isCurrentlySpeaking = false;
+            spokenInstructions.clear();
+            nextInstructionTriggered.clear();
+            currentStepIndex = 0;
+            
+            if (isMobileDevice) {
+                mobileSpokenInstructions.clear();
+                mobileSpeechInProgress = false;
+            }
+            
+            document.getElementById('distance-info').classList.add('hidden');
+        }
+
+        function toggleVoiceNavigation() {
+            console.log('Voice button clicked, current state:', speechActive);
+            
+            speechActive = !speechActive;
+            
+            if (speechActive) {
+                if (!directionsReady) {
+                    updateMessage('Waiting for route to load...', 'high');
+                    speakInstruction('Please wait for the route to load.');
+                } else {
+                    updateMessage('Voice navigation enabled', 'high');
+                    speakInstruction('Voice navigation enabled');
+                    
+                    // Faster startup for mobile
+                    if (isMobileDevice) {
+                        setTimeout(() => {
+                            if (!mobileSpeechInProgress) {
+                                startTurnByTurnNavigation();
+                            } else {
+                                // Quick check every second
+                                const quickCheck = () => {
+                                    if (!mobileSpeechInProgress) {
+                                        startTurnByTurnNavigation();
+                                    } else {
+                                        setTimeout(quickCheck, 1000);
+                                    }
+                                };
+                                setTimeout(quickCheck, 1000);
+                            }
+                        }, 2000); // Much shorter initial wait
+                    } else {
+                        setTimeout(() => {
+                            startTurnByTurnNavigation();
+                        }, 2500);
+                    }
+                }
+            } else {
+                updateMessage('Voice navigation disabled', 'high', true);
+                stopTurnByTurnNavigation();
+            }
+            
+            updateVoiceButtonState();
+        }
+
+        function onGeolocationSuccess(pos){
+            const coords = pos.coords;
+            const userLoc = new mapboxgl.LngLat(coords.longitude, coords.latitude);
+            lastUserLocation = userLoc;
+            
+            const userEmail = getUrlParams().email || 'testuser@example.com';
+
+            if(!vehicleMarker){
+                console.log('Creating vehicle marker and directions');
+                
+                const car=document.createElement('div');
+                car.innerHTML='🚗';
+                car.style.fontSize='32px';
+                vehicleMarker=new mapboxgl.Marker({element:car}).setLngLat(userLoc).addTo(map);
+                document.getElementById('arrived-button').classList.remove('hidden');
+
+                directions=new MapboxDirections({
+                    accessToken:mapboxgl.accessToken,
+                    unit:'imperial',
+                    profile:'mapbox/driving',
+                    controls:{inputs:false,instructions:true,profileSwitcher:false}
+                });
+                
+                map.addControl(directions,'top-left');
+                map.dragPan.disable();
+                
+                if(geofenceLocation) {
+                    console.log('Setting destination:', geofenceLocation);
+                    directions.setDestination([geofenceLocation.lng,geofenceLocation.lat]);
+                }
+
+                directions.on('route', (e) => {
+                    console.log('Route calculated successfully');
+                    currentRoute = e.route;
+                    
+                    setTimeout(() => {
+                        const hasSteps = document.querySelectorAll('.mapbox-directions-step').length > 0;
+                        if (hasSteps) {
+                            directionsReady = true;
+                            updateVoiceButtonState();
+                            console.log('Directions ready');
+                            
+                            routeSteps = extractRouteSteps(currentRoute);
+                            console.log(`Route loaded with ${routeSteps.length} steps`);
+                            
+                            if (speechActive) {
+                                startTurnByTurnNavigation();
+                            }
+                        }
+                    }, 2000);
+                });
+
+                directions.on('error', (e) => {
+                    console.error('Directions error:', e);
+                    updateMessage('Error calculating route. Please check your connection.', 'high');
+                });
+            }
+            
+            vehicleMarker.setLngLat(userLoc);
+            if(isInitialLoad){ 
+                map.setCenter(userLoc); 
+                isInitialLoad=false; 
+            }
+            
+            if (directions) {
+                directions.setOrigin([coords.longitude,coords.latitude]);
+            }
+            
+            // NEVER check geofence if mobile speech is in progress
+            if (!(isMobileDevice && mobileSpeechInProgress) && !isCurrentlySpeaking) {
+                checkGeofence(userEmail,coords.latitude,coords.longitude);
+            }
+        }
+
+        function onGeolocationError(err){
+            console.warn(`Geolocation error(${err.code}): ${err.message}`);
+            updateMessage(`Location error: ${err.message}`, 'high');
+        }
+
+        function startGeolocationTracking() {
+            console.log('Starting geolocation tracking...');
+            
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition(onGeolocationSuccess, onGeolocationError, {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 5000
+                });
+            } else {
+                updateMessage('Geolocation not supported by this browser.', 'high');
+            }
+        }
+
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded, initializing app...');
+            
+            const voiceBtn = document.getElementById('voice-button');
+            if (voiceBtn) {
+                voiceBtn.addEventListener('click', toggleVoiceNavigation);
+            }
+        });
+
+        window.onload = function(){
+            console.log('Window loaded, starting initialization...');
+            
+            const {lat,lon,radius,job} = getUrlParams();
+            jobTitle = job || 'Sample Job Title';
+            const geofenceLat = lat || 40.7128;
+            const geofenceLon = lon || -74.0060;
+            const geofenceRadius = radius || 500;
+            geofenceLocation = {lat: geofenceLat, lng: geofenceLon};
+            
+            console.log('Geofence location:', geofenceLocation);
+            
+            const jobMsg = document.getElementById('job-message');
+            if(jobTitle && jobTitle !== 'a job'){ 
+                jobMsg.textContent = `Job: ${jobTitle}`; 
+                jobMsg.classList.remove('hidden'); 
+            }
+
+            console.log('Creating map...');
+            map = new mapboxgl.Map({
+                container: 'map',
+                style: 'mapbox://styles/mapbox/streets-v12',
+                center: [geofenceLon, geofenceLat],
+                zoom: 12
+            });
+
+            map.on('load', () => {
+                console.log('Map loaded successfully');
+                
+                const center = [geofenceLon, geofenceLat];
+                geofence = turf.circle(center, geofenceRadius, {steps: 64, units: 'feet'});
+                map.addSource('geofence', {type: 'geojson', data: geofence});
+                map.addLayer({
+                    id: 'geofence-layer',
+                    type: 'fill',
+                    source: 'geofence',
+                    paint: {'fill-color': '#007cbf', 'fill-opacity': 0.3}
+                });
+                new mapboxgl.Marker({color: '#007cbf'}).setLngLat(center).addTo(map);
+                
+                console.log('Starting geolocation...');
+                startGeolocationTracking();
+            });
+
+            map.on('error', (e) => {
+                console.error('Map error:', e);
+                updateMessage('Map failed to load. Please refresh the page.', 'high');
+            });
+
+            document.getElementById('arrived-button').addEventListener('click', () => {
+                const userEmail = getUrlParams().email || 'testuser@example.com';
+                const loc = vehicleMarker ? vehicleMarker.getLngLat() : {lat: 0, lng: 0};
+                sendWebhook('complete', userEmail, loc.lat, loc.lng);
+                updateMessage('Job Complete!', 'high');
+                setTimeout(() => { window.close(); }, 1000);
+            });
+
+            updateVoiceButtonState();
+            console.log('App initialization complete');
+        }
+    </script>
+</body>
 </html>
