@@ -112,8 +112,8 @@
             }
         }
 
-        // Simple speech function with duplicate prevention
-        function speakText(text) {
+        // Enhanced speech function with mobile message coordination
+        function speakText(text, updateMessageImmediately = true) {
             if (!speechActive || !text) return;
             
             const textKey = text.toLowerCase().trim();
@@ -127,10 +127,25 @@
             console.log('Speaking:', text);
             spokenInstructions.add(textKey);
             
+            // For mobile: delay message update until speech actually starts
+            if (isMobileDevice && updateMessageImmediately) {
+                console.log('Mobile: Delaying message update until speech starts');
+            } else if (updateMessageImmediately) {
+                updateMessage(text);
+            }
+            
             try {
                 const utterance = new SpeechSynthesisUtterance(text);
                 utterance.rate = isMobileDevice ? 0.7 : 0.8;
                 utterance.volume = 1.0;
+                
+                utterance.onstart = () => {
+                    console.log('Speech started');
+                    // Update message when speech actually starts on mobile
+                    if (isMobileDevice && updateMessageImmediately) {
+                        updateMessage(text);
+                    }
+                };
                 
                 utterance.onend = () => {
                     console.log('Speech completed');
@@ -138,12 +153,20 @@
                 
                 utterance.onerror = (e) => {
                     console.log('Speech error:', e.error);
+                    // Fallback: show message even if speech fails
+                    if (isMobileDevice && updateMessageImmediately) {
+                        updateMessage(text);
+                    }
                 };
                 
                 window.speechSynthesis.speak(utterance);
                 
             } catch (error) {
                 console.error('Speech error:', error);
+                // Fallback: show message if speech creation fails
+                if (isMobileDevice && updateMessageImmediately) {
+                    updateMessage(text);
+                }
             }
         }
 
@@ -288,7 +311,12 @@
                     console.log(`Triggering instruction at ${Math.round(distanceData.distance)} feet: ${distanceData.instruction}`);
                     
                     nextInstructionTriggered.add(stepKey);
-                    updateMessage(distanceData.instruction);
+                    
+                    // For desktop: update message immediately
+                    // For mobile: let speech coordinate the message update
+                    if (!isMobileDevice) {
+                        updateMessage(distanceData.instruction);
+                    }
                     speakText(distanceData.instruction);
                 }
                 
@@ -318,7 +346,12 @@
                 const firstInstruction = getCurrentInstruction();
                 if (firstInstruction && firstInstruction.length > 8) {
                     console.log('Speaking first instruction:', firstInstruction);
-                    updateMessage(firstInstruction);
+                    
+                    // For desktop: update message immediately
+                    // For mobile: let speech coordinate the message update
+                    if (!isMobileDevice) {
+                        updateMessage(firstInstruction);
+                    }
                     speakText(firstInstruction);
                     
                     // Mark as triggered to prevent repeats
@@ -369,10 +402,14 @@
             
             if (speechActive) {
                 if (!directionsReady) {
+                    // For this case, show message immediately since it's informational
                     updateMessage('Waiting for route to load...');
-                    speakText('Please wait for the route to load.');
+                    speakText('Please wait for the route to load.', false);
                 } else {
-                    updateMessage('Voice navigation enabled');
+                    // For mobile: don't show message immediately, let speech coordinate it
+                    if (!isMobileDevice) {
+                        updateMessage('Voice navigation enabled');
+                    }
                     speakText('Voice navigation enabled');
                     
                     // Start turn-by-turn navigation after voice enabled message
