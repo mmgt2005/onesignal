@@ -49,15 +49,15 @@
         let directionsReady = false;
         let currentRoute = null;
         
-        // Speech management - simplified
+        // Speech management - simplified approach
         let isCurrentlySpeaking = false;
         let spokenInstructions = new Set();
         let isMobileDevice = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         
-        // Mobile-only nuclear speech system
-        let mobileCurrentUtterance = null;
-        let mobileLastSpokenText = '';
-        let mobileLastSpokenTime = 0;
+        // Simplified mobile speech variables
+        let mobileInstructionQueue = [];
+        let mobileCurrentlyPlaying = false;
+        let mobileSpokenTexts = new Set();
         
         // Distance-based navigation
         const INSTRUCTION_TRIGGER_DISTANCE = 300; // feet
@@ -89,13 +89,7 @@
         function updateMessage(text, priority = 'normal', temporary = false) {
             const msg = document.getElementById('message');
             
-            // For mobile: don't update message at all if speech is active (prevents visual interruption cues)
-            if (isMobileDevice && mobileCurrentUtterance && priority !== 'high') {
-                console.log('MOBILE: Blocking message update during speech -', text);
-                return;
-            }
-            
-            if (speechActive && priority !== 'high' && (isCurrentlySpeaking || (isMobileDevice && mobileCurrentUtterance))) {
+            if (speechActive && priority !== 'high' && (isCurrentlySpeaking || (isMobileDevice && mobileCurrentlyPlaying))) {
                 console.log('Message update queued (speech active):', text);
                 return;
             }
@@ -104,7 +98,7 @@
             
             if (temporary && !speechActive) {
                 setTimeout(() => {
-                    if (!speechActive && !isCurrentlySpeaking && !(isMobileDevice && mobileCurrentUtterance)) {
+                    if (!speechActive && !isCurrentlySpeaking && !(isMobileDevice && mobileCurrentlyPlaying)) {
                         msg.textContent = 'Vehicle is on its way to the job location...';
                     }
                 }, 5000);
@@ -576,41 +570,24 @@
             
             window.speechSynthesis.cancel();
             
-            // For mobile: wait before speaking first instruction to avoid conflicts
-            if (isMobileDevice) {
-                setTimeout(() => {
-                    const firstInstruction = getCurrentInstruction();
-                    if (firstInstruction && firstInstruction.length > 8) {
-                        console.log('MOBILE: Speaking first instruction after delay:', firstInstruction);
-                        updateMessage(firstInstruction, 'high');
-                        speakInstruction(firstInstruction);
-                        
-                        // Mark this instruction as triggered to prevent duplicates
-                        const stepKey = `${currentStepIndex}_${firstInstruction}`;
-                        nextInstructionTriggered.add(stepKey);
-                    }
-                    
-                    // Start distance monitoring even later
-                    setTimeout(() => {
-                        startDistanceBasedNavigation();
-                    }, 5000); // 5 second delay for mobile
-                }, 2000); // 2 second delay before first instruction
-            } else {
-                // Desktop: immediate execution
+            // Simple delay for first instruction
+            setTimeout(() => {
                 const firstInstruction = getCurrentInstruction();
                 if (firstInstruction && firstInstruction.length > 8) {
                     console.log('Speaking first instruction:', firstInstruction);
                     updateMessage(firstInstruction, 'high');
                     speakInstruction(firstInstruction);
                     
+                    // Mark this instruction as triggered to prevent duplicates
                     const stepKey = `${currentStepIndex}_${firstInstruction}`;
                     nextInstructionTriggered.add(stepKey);
                 }
                 
+                // Start distance monitoring
                 setTimeout(() => {
                     startDistanceBasedNavigation();
-                }, 2000);
-            }
+                }, 3000); // 3 second delay for all devices
+            }, 1000);
         }
 
         function stopTurnByTurnNavigation() {
@@ -628,10 +605,10 @@
             currentStepIndex = 0;
             
             if (isMobileDevice) {
-                mobileCurrentUtterance = null;
-                mobileLastSpokenText = '';
-                mobileLastSpokenTime = 0;
-                console.log('MOBILE NUCLEAR: Cleared all speech systems');
+                mobileInstructionQueue = [];
+                mobileCurrentlyPlaying = false;
+                mobileSpokenTexts.clear();
+                console.log('Mobile: Cleared all speech systems');
             }
             
             document.getElementById('distance-info').classList.add('hidden');
@@ -639,11 +616,6 @@
 
         function toggleVoiceNavigation() {
             console.log('Voice button clicked, current state:', speechActive);
-            
-            // Prime speech engine on first interaction (mobile)
-            if (isMobileDevice && !speechEnginePrimed) {
-                primeSpeechEngine();
-            }
             
             speechActive = !speechActive;
             
@@ -655,24 +627,10 @@
                     updateMessage('Voice navigation enabled', 'high');
                     speakInstruction('Voice navigation enabled');
                     
-                    // For mobile: wait much longer and check more carefully
-                    if (isMobileDevice) {
-                        const patientCheck = () => {
-                            if (!mobileCurrentUtterance) {
-                                console.log('MOBILE NUCLEAR: Speech completely finished, starting navigation');
-                                startTurnByTurnNavigation();
-                            } else {
-                                console.log('MOBILE NUCLEAR: Still speaking, waiting longer...');
-                                setTimeout(patientCheck, 1000); // Check every 1 second, not 500ms
-                            }
-                        };
-                        // Wait 3 seconds before even starting to check
-                        setTimeout(patientCheck, 3000);
-                    } else {
-                        setTimeout(() => {
-                            startTurnByTurnNavigation();
-                        }, 2500);
-                    }
+                    // Simple delay before starting navigation
+                    setTimeout(() => {
+                        startTurnByTurnNavigation();
+                    }, isMobileDevice ? 4000 : 2500); // 4 seconds for mobile
                 }
             } else {
                 updateMessage('Voice navigation disabled', 'high', true);
@@ -782,18 +740,6 @@
             const voiceBtn = document.getElementById('voice-button');
             if (voiceBtn) {
                 voiceBtn.addEventListener('click', toggleVoiceNavigation);
-                
-                // Prime speech engine on mobile when page loads
-                if (isMobileDevice) {
-                    // Prime on first user interaction with the page
-                    const primeOnInteraction = () => {
-                        primeSpeechEngine();
-                        document.removeEventListener('touchstart', primeOnInteraction);
-                        document.removeEventListener('click', primeOnInteraction);
-                    };
-                    document.addEventListener('touchstart', primeOnInteraction);
-                    document.addEventListener('click', primeOnInteraction);
-                }
             }
         });
 
