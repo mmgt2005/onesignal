@@ -38,35 +38,31 @@
     </div>
 
     <script>
-        console.log('Geofence app starting...');
+        console.log('Starting clean geofence app...');
         
+        // Basic variables
         mapboxgl.accessToken = 'pk.eyJ1IjoibW1ndDIwMDUiLCJhIjoiY21laW4xY2dqMDQ1NDJpcHdqOW1hMDk3ZCJ9.aSTR_k5xhzGJNPPAVAFnlw';
         const WEBHOOK_URL = 'https://go.glideapps.com/api/container/plugin/webhook-trigger/LPCunXsYkOiRLSxXBhSH/5322e093-74bf-4793-92fa-ef5713bf8ab1';
 
         let map, vehicleMarker, geofence, directions;
         let isInsideGeofence = false, jobTitle, geofenceLocation;
-        let isInitialLoad = true, speechActive = false;
-        let directionsReady = false;
+        let isInitialLoad = true, speechActive = false, directionsReady = false;
         let currentRoute = null;
         
-        // Simplified speech system
-        let isCurrentlySpeaking = false;
-        let spokenInstructions = new Set();
+        // Speech variables
         let isMobileDevice = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        let spokenInstructions = new Set();
+        let isCurrentlySpeaking = false;
         
-        // Mobile speech with minimal complexity
-        let mobileSpokenTexts = new Set();
-        let mobileCurrentUtterance = null;
-        
-        // Distance-based navigation
-        const INSTRUCTION_TRIGGER_DISTANCE = 300; // feet
+        // Navigation variables
+        const INSTRUCTION_TRIGGER_DISTANCE = 300;
         let routeSteps = [];
         let currentStepIndex = 0;
         let lastUserLocation = null;
         let distanceCheckInterval = null;
         let nextInstructionTriggered = new Set();
 
-        console.log('Variables initialized, mobile device:', isMobileDevice);
+        console.log('Variables initialized, mobile:', isMobileDevice);
 
         function getUrlParams() {
             const params = {};
@@ -77,7 +73,7 @@
         }
 
         async function sendWebhook(status,email,latitude,longitude){
-            if(!WEBHOOK_URL){console.warn("Webhook URL not configured.");return;}
+            if(!WEBHOOK_URL) return;
             try{
                 const data={status,latitude,longitude,email,job:jobTitle,timestamp:new Date().toISOString()};
                 const r=await fetch(WEBHOOK_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
@@ -85,17 +81,8 @@
             }catch(e){console.error('Error sending webhook:',e);}
         }
 
-        function updateMessage(text, priority = 'normal', temporary = false) {
-            const msg = document.getElementById('message');
-            msg.textContent = text;
-            
-            if (temporary && !speechActive) {
-                setTimeout(() => {
-                    if (!speechActive && !isCurrentlySpeaking && !(isMobileDevice && mobileCurrentUtterance)) {
-                        msg.textContent = 'Vehicle is on its way to the job location...';
-                    }
-                }, 5000);
-            }
+        function updateMessage(text) {
+            document.getElementById('message').textContent = text;
         }
 
         function checkGeofence(email,latitude,longitude){
@@ -108,139 +95,80 @@
             if(jobTitle&&jobTitle!=='a job'){
                 jobMsg.textContent=`Job: ${jobTitle}`;
                 jobMsg.classList.remove('hidden');
-            } else {
-                jobMsg.classList.add('hidden');
             }
 
             if(inside&&!isInsideGeofence){
                 sendWebhook('inside',email,latitude,longitude);
                 isInsideGeofence=true;
-                updateMessage('Vehicle is at the job location!', 'high');
+                updateMessage('Vehicle is at the job location!');
             }
             else if(!inside&&isInsideGeofence){
                 sendWebhook('outside',email,latitude,longitude);
                 isInsideGeofence=false;
-                updateMessage('Vehicle has left the job location!', 'high');
+                updateMessage('Vehicle has left the job location!');
             }
-            else if(!isInsideGeofence && !speechActive && !isCurrentlySpeaking){
+            else if(!isInsideGeofence && !speechActive){
                 updateMessage('Vehicle is on its way to the job location...');
             }
         }
 
-        // Simple mobile speech - no complex logic
-        function speakOnMobile(text) {
-            if (!isMobileDevice || !speechActive || !text) return;
+        // Simple speech function with duplicate prevention
+        function speakText(text) {
+            if (!speechActive || !text) return;
             
-            const cleanText = text.trim();
+            const textKey = text.toLowerCase().trim();
             
             // Simple duplicate prevention
-            if (mobileSpokenTexts.has(cleanText)) {
-                console.log('Mobile: Already spoken -', cleanText);
+            if (spokenInstructions.has(textKey)) {
+                console.log('Already spoken:', text);
                 return;
             }
             
-            // Don't speak if currently speaking
-            if (mobileCurrentUtterance) {
-                console.log('Mobile: Currently speaking, skipping');
-                return;
-            }
-            
-            console.log('Mobile: Speaking -', cleanText);
-            mobileSpokenTexts.add(cleanText);
+            console.log('Speaking:', text);
+            spokenInstructions.add(textKey);
             
             try {
-                mobileCurrentUtterance = new SpeechSynthesisUtterance(cleanText);
-                mobileCurrentUtterance.rate = 0.8;
-                mobileCurrentUtterance.volume = 1.0;
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.rate = isMobileDevice ? 0.7 : 0.8;
+                utterance.volume = 1.0;
                 
-                mobileCurrentUtterance.onstart = () => {
-                    console.log('Mobile: Speech started');
+                utterance.onend = () => {
+                    console.log('Speech completed');
                 };
                 
-                mobileCurrentUtterance.onend = () => {
-                    console.log('Mobile: Speech ended');
-                    mobileCurrentUtterance = null;
+                utterance.onerror = (e) => {
+                    console.log('Speech error:', e.error);
                 };
                 
-                mobileCurrentUtterance.onerror = (e) => {
-                    console.log('Mobile: Speech error -', e.error);
-                    mobileCurrentUtterance = null;
-                };
-                
-                // Safety timeout
-                setTimeout(() => {
-                    if (mobileCurrentUtterance) {
-                        mobileCurrentUtterance = null;
-                    }
-                }, 15000);
-                
-                window.speechSynthesis.speak(mobileCurrentUtterance);
+                window.speechSynthesis.speak(utterance);
                 
             } catch (error) {
-                console.error('Mobile: Speech error:', error);
-                mobileCurrentUtterance = null;
+                console.error('Speech error:', error);
             }
         }
 
-        // Desktop speech
-        function speakOnDesktop(text) {
-            if (isMobileDevice || !speechActive || !text) return;
-            
-            const hash = text.toLowerCase().trim();
-            
-            if (spokenInstructions.has(hash) || isCurrentlySpeaking) {
-                return;
+        // Extract route steps for navigation
+        function extractRouteSteps(route) {
+            const steps = [];
+            if (route && route[0] && route[0].legs) {
+                route[0].legs.forEach(leg => {
+                    if (leg.steps) {
+                        leg.steps.forEach(step => {
+                            if (step.maneuver && step.maneuver.instruction) {
+                                steps.push({
+                                    maneuver: step.maneuver,
+                                    distance: step.distance,
+                                    duration: step.duration
+                                });
+                            }
+                        });
+                    }
+                });
             }
-            
-            console.log('Desktop: Speaking -', text);
-            isCurrentlySpeaking = true;
-            spokenInstructions.add(hash);
-            
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.rate = 0.8;
-            utterance.volume = 0.9;
-            
-            utterance.onend = () => {
-                isCurrentlySpeaking = false;
-            };
-            
-            utterance.onerror = () => {
-                isCurrentlySpeaking = false;
-            };
-            
-            window.speechSynthesis.speak(utterance);
+            return steps;
         }
 
-        // Unified speech function
-        function speakInstruction(text) {
-            if (!text || !speechActive) return;
-            
-            if (isMobileDevice) {
-                speakOnMobile(text);
-            } else {
-                speakOnDesktop(text);
-            }
-        }
-
-        function updateVoiceButtonState() {
-            const btn = document.getElementById('voice-button');
-            if (!btn) return;
-            
-            if (!directionsReady) {
-                btn.textContent = '⏳';
-                btn.className = 'bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors';
-                btn.title = 'Waiting for route to load...';
-            } else if (speechActive) {
-                btn.textContent = '🔇';
-                btn.className = 'bg-green-500 hover:bg-green-600 ring-4 ring-green-400 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors';
-                btn.title = 'Voice navigation ON - Click to disable';
-            } else {
-                btn.textContent = '🗣️';
-                btn.className = 'bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors';
-                btn.title = 'Click to enable voice navigation';
-            }
-        }
-
+        // Calculate distance to next turn
         function calculateDistanceToNextStep(userLocation) {
             if (!currentRoute || !currentRoute[0] || !routeSteps || currentStepIndex >= routeSteps.length) {
                 return null;
@@ -271,6 +199,7 @@
             }
         }
 
+        // Update distance display
         function updateDistanceInfo(distanceData) {
             const distanceInfo = document.getElementById('distance-info');
             if (distanceData && speechActive) {
@@ -282,26 +211,7 @@
             }
         }
 
-        function extractRouteSteps(route) {
-            const steps = [];
-            if (route && route[0] && route[0].legs) {
-                route[0].legs.forEach(leg => {
-                    if (leg.steps) {
-                        leg.steps.forEach(step => {
-                            if (step.maneuver && step.maneuver.instruction) {
-                                steps.push({
-                                    maneuver: step.maneuver,
-                                    distance: step.distance,
-                                    duration: step.duration
-                                });
-                            }
-                        });
-                    }
-                });
-            }
-            return steps;
-        }
-
+        // Get current instruction from directions UI
         function getCurrentInstruction() {
             const activeStep = document.querySelector('.mapbox-directions-step-active') || 
                               document.querySelector('.mapbox-directions-step.active');
@@ -331,8 +241,7 @@
             const instructionSelectors = [
                 '.mapbox-directions-step-maneuver-instruction',
                 '.mapboxgl-directions-step-maneuver-instruction',
-                '.mapbox-directions-instruction',
-                '.mapbox-directions-step-content'
+                '.mapbox-directions-instruction'
             ];
             
             for (const selector of instructionSelectors) {
@@ -345,23 +254,10 @@
                 }
             }
             
-            const stepText = stepElement.textContent.trim();
-            const sentences = stepText.split('.').map(s => s.trim()).filter(s => s.length > 0);
-            
-            for (const sentence of sentences) {
-                if (sentence.match(/^\d+\.?\d*\s*(km|mi|miles?|minutes?|min|ft|feet)/i)) {
-                    continue;
-                }
-                
-                if (sentence.match(/\b(drive|turn|continue|keep|take|merge|exit|head|go|proceed|follow|bear|stay)\b/i) && 
-                    sentence.length > 10) {
-                    return sentence + '.';
-                }
-            }
-            
             return null;
         }
 
+        // Distance-based navigation monitoring
         function startDistanceBasedNavigation() {
             if (!speechActive || !currentRoute) return;
             
@@ -392,8 +288,8 @@
                     console.log(`Triggering instruction at ${Math.round(distanceData.distance)} feet: ${distanceData.instruction}`);
                     
                     nextInstructionTriggered.add(stepKey);
-                    updateMessage(distanceData.instruction, 'high');
-                    speakInstruction(distanceData.instruction);
+                    updateMessage(distanceData.instruction);
+                    speakText(distanceData.instruction);
                 }
                 
                 if (distanceData.distance <= 50) {
@@ -407,32 +303,38 @@
             }, 3000);
         }
 
+        // Start turn-by-turn navigation
         function startTurnByTurnNavigation() {
             if (!speechActive || !directionsReady) return;
             
             console.log('Starting turn-by-turn navigation');
             
+            // Reset tracking
             spokenInstructions.clear();
             nextInstructionTriggered.clear();
             
+            // Get and speak first instruction
             setTimeout(() => {
                 const firstInstruction = getCurrentInstruction();
                 if (firstInstruction && firstInstruction.length > 8) {
                     console.log('Speaking first instruction:', firstInstruction);
-                    updateMessage(firstInstruction, 'high');
-                    speakInstruction(firstInstruction);
+                    updateMessage(firstInstruction);
+                    speakText(firstInstruction);
                     
+                    // Mark as triggered to prevent repeats
                     const stepKey = `${currentStepIndex}_${firstInstruction}`;
                     nextInstructionTriggered.add(stepKey);
                 }
                 
+                // Start distance monitoring
                 setTimeout(() => {
                     startDistanceBasedNavigation();
-                }, 4000);
+                }, 3000);
                 
             }, 1000);
         }
 
+        // Stop navigation
         function stopTurnByTurnNavigation() {
             console.log('Stopping turn-by-turn navigation');
             
@@ -441,40 +343,47 @@
                 distanceCheckInterval = null;
             }
             
-            window.speechSynthesis.cancel();
-            isCurrentlySpeaking = false;
             spokenInstructions.clear();
             nextInstructionTriggered.clear();
             currentStepIndex = 0;
             
-            if (isMobileDevice) {
-                mobileSpokenTexts.clear();
-                mobileCurrentUtterance = null;
-            }
-            
             document.getElementById('distance-info').classList.add('hidden');
         }
 
-        function toggleVoiceNavigation() {
-            console.log('Voice button clicked, current state:', speechActive);
+        function updateVoiceButtonState() {
+            const btn = document.getElementById('voice-button');
+            if (!btn) return;
             
+            if (speechActive) {
+                btn.textContent = '🔇';
+                btn.className = 'bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors';
+            } else {
+                btn.textContent = '🗣️';
+                btn.className = 'bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg shadow-md transition-colors';
+            }
+        }
+
+        function toggleVoiceNavigation() {
+            console.log('Voice button clicked');
             speechActive = !speechActive;
             
             if (speechActive) {
                 if (!directionsReady) {
-                    updateMessage('Waiting for route to load...', 'high');
-                    speakInstruction('Please wait for the route to load.');
+                    updateMessage('Waiting for route to load...');
+                    speakText('Please wait for the route to load.');
                 } else {
-                    updateMessage('Voice navigation enabled', 'high');
-                    speakInstruction('Voice navigation enabled');
+                    updateMessage('Voice navigation enabled');
+                    speakText('Voice navigation enabled');
                     
+                    // Start turn-by-turn navigation after voice enabled message
                     setTimeout(() => {
                         startTurnByTurnNavigation();
                     }, 3000);
                 }
             } else {
-                updateMessage('Voice navigation disabled', 'high', true);
+                updateMessage('Voice navigation disabled');
                 stopTurnByTurnNavigation();
+                window.speechSynthesis.cancel();
             }
             
             updateVoiceButtonState();
@@ -488,7 +397,7 @@
             const userEmail = getUrlParams().email || 'testuser@example.com';
 
             if(!vehicleMarker){
-                console.log('Creating vehicle marker and directions');
+                console.log('Creating vehicle marker');
                 
                 const car=document.createElement('div');
                 car.innerHTML='🚗';
@@ -504,7 +413,6 @@
                 });
                 
                 map.addControl(directions,'top-left');
-                map.dragPan.disable();
                 
                 if(geofenceLocation) {
                     console.log('Setting destination:', geofenceLocation);
@@ -512,29 +420,24 @@
                 }
 
                 directions.on('route', (e) => {
-                    console.log('Route calculated successfully');
+                    console.log('Route calculated');
                     currentRoute = e.route;
                     
+                    // Wait for directions UI to be ready
                     setTimeout(() => {
                         const hasSteps = document.querySelectorAll('.mapbox-directions-step').length > 0;
                         if (hasSteps) {
                             directionsReady = true;
-                            updateVoiceButtonState();
-                            console.log('Directions ready');
-                            
                             routeSteps = extractRouteSteps(currentRoute);
-                            console.log(`Route loaded with ${routeSteps.length} steps`);
+                            console.log(`Route ready with ${routeSteps.length} steps`);
+                            updateVoiceButtonState();
                             
+                            // If voice navigation was already enabled, start turn-by-turn
                             if (speechActive) {
                                 startTurnByTurnNavigation();
                             }
                         }
                     }, 2000);
-                });
-
-                directions.on('error', (e) => {
-                    console.error('Directions error:', e);
-                    updateMessage('Error calculating route. Please check your connection.', 'high');
                 });
             }
             
@@ -552,12 +455,12 @@
         }
 
         function onGeolocationError(err){
-            console.warn(`Geolocation error(${err.code}): ${err.message}`);
-            updateMessage(`Location error: ${err.message}`, 'high');
+            console.warn(`Geolocation error: ${err.message}`);
+            updateMessage(`Location error: ${err.message}`);
         }
 
         function startGeolocationTracking() {
-            console.log('Starting geolocation tracking...');
+            console.log('Starting geolocation...');
             
             if (navigator.geolocation) {
                 navigator.geolocation.watchPosition(onGeolocationSuccess, onGeolocationError, {
@@ -566,13 +469,13 @@
                     maximumAge: 5000
                 });
             } else {
-                updateMessage('Geolocation not supported by this browser.', 'high');
+                updateMessage('Geolocation not supported');
             }
         }
 
-        // Initialize app
+        // Initialize
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM loaded, initializing app...');
+            console.log('DOM loaded');
             
             const voiceBtn = document.getElementById('voice-button');
             if (voiceBtn) {
@@ -581,23 +484,15 @@
         });
 
         window.onload = function(){
-            console.log('Window loaded, starting initialization...');
+            console.log('Window loaded, initializing...');
             
             const {lat,lon,radius,job} = getUrlParams();
-            jobTitle = job || 'Sample Job Title';
+            jobTitle = job || 'Sample Job';
             const geofenceLat = lat || 40.7128;
             const geofenceLon = lon || -74.0060;
             const geofenceRadius = radius || 500;
             geofenceLocation = {lat: geofenceLat, lng: geofenceLon};
             
-            console.log('Geofence location:', geofenceLocation);
-            
-            const jobMsg = document.getElementById('job-message');
-            if(jobTitle && jobTitle !== 'a job'){ 
-                jobMsg.textContent = `Job: ${jobTitle}`; 
-                jobMsg.classList.remove('hidden'); 
-            }
-
             console.log('Creating map...');
             map = new mapboxgl.Map({
                 container: 'map',
@@ -620,25 +515,23 @@
                 });
                 new mapboxgl.Marker({color: '#007cbf'}).setLngLat(center).addTo(map);
                 
-                console.log('Starting geolocation...');
                 startGeolocationTracking();
             });
 
             map.on('error', (e) => {
                 console.error('Map error:', e);
-                updateMessage('Map failed to load. Please refresh the page.', 'high');
+                updateMessage('Map failed to load');
             });
 
             document.getElementById('arrived-button').addEventListener('click', () => {
                 const userEmail = getUrlParams().email || 'testuser@example.com';
                 const loc = vehicleMarker ? vehicleMarker.getLngLat() : {lat: 0, lng: 0};
                 sendWebhook('complete', userEmail, loc.lat, loc.lng);
-                updateMessage('Job Complete!', 'high');
-                setTimeout(() => { window.close(); }, 1000);
+                updateMessage('Job Complete!');
             });
 
             updateVoiceButtonState();
-            console.log('App initialization complete');
+            console.log('Initialization complete');
         }
     </script>
 </body>
