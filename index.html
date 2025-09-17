@@ -131,7 +131,7 @@
             }
         }
 
-        // Simplified mobile speech - faster and more reliable
+        // Simplified mobile speech - faster speech, longer timeout, immediate start
         function speakOnMobile(text) {
             if (!isMobileDevice || !speechActive || !text) return;
             
@@ -164,60 +164,57 @@
                 console.log('Cancel error:', e);
             }
             
-            // Minimal delay before speaking
-            setTimeout(() => {
-                if (!speechActive) {
-                    mobileSpeechInProgress = false;
-                    return;
-                }
+            // Start speaking immediately - no delay
+            if (!speechActive) {
+                mobileSpeechInProgress = false;
+                return;
+            }
+            
+            try {
+                const utterance = new SpeechSynthesisUtterance(cleanText);
+                utterance.lang = 'en-US';
+                utterance.rate = 1.0; // Normal speaking speed
+                utterance.volume = 1.0;
+                utterance.pitch = 1.0;
                 
-                try {
-                    const utterance = new SpeechSynthesisUtterance(cleanText);
-                    utterance.lang = 'en-US';
-                    utterance.rate = 0.8; // Faster speech
-                    utterance.volume = 1.0;
-                    utterance.pitch = 1.0;
-                    
-                    let finished = false;
-                    
-                    utterance.onstart = function() {
-                        console.log('MOBILE: Started speaking');
-                    };
-                    
-                    utterance.onend = function() {
-                        if (!finished) {
-                            finished = true;
-                            console.log('MOBILE: Speech finished');
-                            mobileSpeechInProgress = false;
-                        }
-                    };
-                    
-                    utterance.onerror = function(event) {
-                        if (!finished) {
-                            finished = true;
-                            console.log('MOBILE: Speech error -', event.error);
-                            mobileSpeechInProgress = false;
-                        }
-                    };
-                    
-                    // Safety timeout - shorter for faster response
-                    setTimeout(() => {
-                        if (!finished) {
-                            finished = true;
-                            console.log('MOBILE: Safety timeout');
-                            mobileSpeechInProgress = false;
-                        }
-                    }, 10000);
-                    
-                    // Speak immediately
-                    window.speechSynthesis.speak(utterance);
-                    
-                } catch (error) {
-                    console.error('MOBILE: Speech creation error:', error);
-                    mobileSpeechInProgress = false;
-                }
+                let finished = false;
                 
-            }, 300); // Much shorter delay
+                utterance.onstart = function() {
+                    console.log('MOBILE: Started speaking immediately');
+                };
+                
+                utterance.onend = function() {
+                    if (!finished) {
+                        finished = true;
+                        console.log('MOBILE: Speech finished');
+                        mobileSpeechInProgress = false;
+                    }
+                };
+                
+                utterance.onerror = function(event) {
+                    if (!finished) {
+                        finished = true;
+                        console.log('MOBILE: Speech error -', event.error);
+                        mobileSpeechInProgress = false;
+                    }
+                };
+                
+                // Extended timeout for longer instructions
+                setTimeout(() => {
+                    if (!finished) {
+                        finished = true;
+                        console.log('MOBILE: Extended timeout (20s)');
+                        mobileSpeechInProgress = false;
+                    }
+                }, 20000); // 20 second timeout for longer instructions
+                
+                // Speak immediately
+                window.speechSynthesis.speak(utterance);
+                
+            } catch (error) {
+                console.error('MOBILE: Speech creation error:', error);
+                mobileSpeechInProgress = false;
+            }
         }
 
         // Desktop speech function
@@ -486,24 +483,22 @@
             
             window.speechSynthesis.cancel();
             
+            // Start first instruction immediately
+            const firstInstruction = getCurrentInstruction();
+            if (firstInstruction && firstInstruction.length > 8) {
+                console.log('Speaking first instruction:', firstInstruction);
+                updateMessage(firstInstruction, 'high');
+                speakInstruction(firstInstruction);
+                
+                // Mark this instruction as triggered to prevent duplicates
+                const stepKey = `${currentStepIndex}_${firstInstruction}`;
+                nextInstructionTriggered.add(stepKey);
+            }
+            
+            // Start distance monitoring quickly
             setTimeout(() => {
-                const firstInstruction = getCurrentInstruction();
-                if (firstInstruction && firstInstruction.length > 8) {
-                    console.log('Speaking first instruction:', firstInstruction);
-                    updateMessage(firstInstruction, 'high');
-                    speakInstruction(firstInstruction);
-                    
-                    // Mark this instruction as triggered to prevent duplicates
-                    const stepKey = `${currentStepIndex}_${firstInstruction}`;
-                    nextInstructionTriggered.add(stepKey);
-                }
-                
-                // Start distance monitoring sooner
-                setTimeout(() => {
-                    startDistanceBasedNavigation();
-                }, isMobileDevice ? 3000 : 2000); // Reduced from 10 seconds to 3 seconds
-                
-            }, 500); // Reduced delay
+                startDistanceBasedNavigation();
+            }, isMobileDevice ? 2000 : 1500); // Faster startup
         }
 
         function stopTurnByTurnNavigation() {
@@ -539,25 +534,21 @@
                     speakInstruction('Please wait for the route to load.');
                 } else {
                     updateMessage('Voice navigation enabled', 'high');
+                    
+                    // Start speaking immediately - no delay
                     speakInstruction('Voice navigation enabled');
                     
-                    // Faster startup for mobile
+                    // For mobile: start checking immediately but frequently
                     if (isMobileDevice) {
-                        setTimeout(() => {
+                        const fastCheck = () => {
                             if (!mobileSpeechInProgress) {
+                                console.log('MOBILE: Speech finished, starting navigation');
                                 startTurnByTurnNavigation();
                             } else {
-                                // Quick check every second
-                                const quickCheck = () => {
-                                    if (!mobileSpeechInProgress) {
-                                        startTurnByTurnNavigation();
-                                    } else {
-                                        setTimeout(quickCheck, 1000);
-                                    }
-                                };
-                                setTimeout(quickCheck, 1000);
+                                setTimeout(fastCheck, 500); // Check every 500ms
                             }
-                        }, 2000); // Much shorter initial wait
+                        };
+                        setTimeout(fastCheck, 1000); // Start checking after 1 second
                     } else {
                         setTimeout(() => {
                             startTurnByTurnNavigation();
