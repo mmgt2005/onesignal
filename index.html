@@ -21,6 +21,12 @@
         .mapbox-directions-step-active {
             background-color:#007cbf!important; color:white!important; font-weight:800;
         }
+        /* Hidden audio element for mobile fallback */
+        #audio-trigger { 
+            position: absolute; 
+            top: -9999px; 
+            left: -9999px; 
+        }
     </style>
 </head>
 <body class="flex flex-col h-screen">
@@ -36,9 +42,11 @@
             <button id="voice-button" class="bg-blue-500 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:bg-blue-600 transition-colors">🗣️</button>
         </div>
     </div>
+    <!-- Hidden audio element to wake up audio context on mobile -->
+    <audio id="audio-trigger" preload="auto"></audio>
 
     <script>
-        console.log('Starting geofence app...');
+        console.log('Starting geofence app with mobile-first approach...');
         
         // Basic variables
         mapboxgl.accessToken = 'pk.eyJ1IjoibW1ndDIwMDUiLCJhIjoiY21laW4xY2dqMDQ1NDJpcHdqOW1hMDk3ZCJ9.aSTR_k5xhzGJNPPAVAFnlw';
@@ -49,11 +57,9 @@
         let isInitialLoad = true, speechActive = false, directionsReady = false;
         let currentRoute = null;
         
-        // Speech variables - using comprehensive tracking to prevent duplicates
+        // Device detection
         let isMobileDevice = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        let spokenInstructionsHistory = new Set(); // Permanent history of ALL spoken instructions
-        let recentlySpoken = new Map(); // Track when each instruction was last spoken
-        const SPEECH_COOLDOWN = 10000; // Don't repeat same instruction within 10 seconds
+        let isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
         
         // Navigation variables
         const INSTRUCTION_TRIGGER_DISTANCE = 300;
@@ -61,8 +67,217 @@
         let currentStepIndex = 0;
         let lastUserLocation = null;
         let distanceCheckInterval = null;
+        
+        // NEW: Mobile-optimized speech queue system
+        class MobileSpeechQueue {
+            constructor() {
+                this.queue = [];
+                this.speaking = false;
+                this.initialized = false;
+                this.spokenHistory = new Set();
+                this.lastSpokenTime = new Map();
+                this.cooldown = 8000; // 8 seconds between same instructions
+            }
+            
+            // Initialize speech with multiple fallback strategies
+            async init() {
+                if (this.initialized) return true;
+                
+                console.log('Initializing mobile speech system...');
+                
+                // Strategy 1: Try standard initialization
+                if ('speechSynthesis' in window) {
+                    try {
+                        // Wake up audio context
+                        const audio = document.getElementById('audio-trigger');
+                        if (audio) {
+                            audio.play().catch(() => {});
+                        }
+                        
+                        // Force load voices
+                        let attempts = 0;
+                        const loadVoices = () => {
+                            const voices = window.speechSynthesis.getVoices();
+                            if (voices.length > 0) {
+                                console.log(`Loaded ${voices.length} voices`);
+                                this.initialized = true;
+                                return true;
+                            } else if (attempts < 10) {
+                                attempts++;
+                                setTimeout(loadVoices, 200);
+                            }
+                            return false;
+                        };
+                        
+                        // Try immediate load
+                        if (!loadVoices()) {
+                            // Setup listener for async load
+                            window.speechSynthesis.onvoiceschanged = () => {
+                                loadVoices();
+                            };
+                        }
+                        
+                        // Strategy 2: Force a silent speak to initialize
+                        const silentUtterance = new SpeechSynthesisUtterance('');
+                        silentUtterance.volume = 0.001;
+                        window.speechSynthesis.speak(silentUtterance);
+                        
+                        this.initialized = true;
+                        return true;
+                    } catch (e) {
+                        console.error('Speech init error:', e);
+                    }
+                }
+                
+                return false;
+            }
+            
+            // Add message to queue with deduplication
+            add(text, priority = false) {
+                if (!text || !speechActive) return;
+                
+                const normalized = text.toLowerCase().replace(/[^\w\s]/g, '').trim();
+                const now = Date.now();
+                
+                // Check cooldown for duplicate prevention
+                const lastTime = this.lastSpokenTime.get(normalized);
+                if (lastTime && (now - lastTime) < this.cooldown) {
+                    console.log('Skipping (cooldown):', text);
+                    updateMessage(text); // Still update display
+                    return;
+                }
+                
+                // Check if already in queue
+                if (this.queue.some(item => item.normalized === normalized)) {
+                    console.log('Already queued:', text);
+                    return;
+                }
+                
+                console.log('Queueing:', text);
+                
+                if (priority) {
+                    this.queue.unshift({ text, normalized, timestamp: now });
+                } else {
+                    this.queue.push({ text, normalized, timestamp: now });
+                }
+                
+                // Process queue if not already speaking
+                if (!this.speaking) {
+                    this.processQueue();
+                }
+            }
+            
+            // Process speech queue with mobile-optimized approach
+            async processQueue() {
+                if (this.speaking || this.queue.length === 0) return;
+                
+                const item = this.queue.shift();
+                if (!item) return;
+                
+                this.speaking = true;
+                updateMessage(item.text);
+                
+                // Mobile-optimized speech
+                try {
+                    // Always cancel before speaking (clean slate)
+                    window.speechSynthesis.cancel();
+                    
+                    // Small delay after cancel for mobile
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                    
+                    const utterance = new SpeechSynthesisUtterance(item.text);
+                    
+                    // Mobile-optimized settings
+                    utterance.rate = isIOS ? 0.95 : 0.9;
+                    utterance.pitch = 1.0;
+                    utterance.volume = 1.0;
+                    
+                    // Try to use a specific voice for consistency
+                    const voices = window.speechSynthesis.getVoices();
+                    if (voices.length > 0) {
+                        const preferredVoice = voices.find(v => 
+                            v.lang.startsWith('en-') && 
+                            (v.name.includes('Google') || v.name.includes('Samantha') || v.default)
+                        ) || voices[0];
+                        
+                        if (preferredVoice) {
+                            utterance.voice = preferredVoice;
+                        }
+                    }
+                    
+                    // Set up event handlers
+                    let spoken = false;
+                    
+                    utterance.onstart = () => {
+                        spoken = true;
+                        console.log('Started:', item.text.substring(0, 30));
+                    };
+                    
+                    utterance.onend = () => {
+                        console.log('Completed:', item.text.substring(0, 30));
+                        this.lastSpokenTime.set(item.normalized, Date.now());
+                        this.spokenHistory.add(item.normalized);
+                        this.speaking = false;
+                        
+                        // Process next item after a small delay
+                        setTimeout(() => this.processQueue(), 500);
+                    };
+                    
+                    utterance.onerror = (e) => {
+                        console.error('Speech error:', e.error);
+                        this.speaking = false;
+                        
+                        // Retry once on error
+                        if (!spoken && e.error !== 'canceled') {
+                            console.log('Retrying speech...');
+                            setTimeout(() => {
+                                this.queue.unshift(item);
+                                this.processQueue();
+                            }, 1000);
+                        } else {
+                            // Move to next item
+                            setTimeout(() => this.processQueue(), 500);
+                        }
+                    };
+                    
+                    // Speak with mobile workaround
+                    window.speechSynthesis.speak(utterance);
+                    
+                    // Fallback timeout for mobile
+                    setTimeout(() => {
+                        if (this.speaking && !window.speechSynthesis.speaking) {
+                            console.log('Speech seems stuck, moving on...');
+                            this.speaking = false;
+                            this.processQueue();
+                        }
+                    }, 5000);
+                    
+                } catch (error) {
+                    console.error('Speech error:', error);
+                    this.speaking = false;
+                    setTimeout(() => this.processQueue(), 1000);
+                }
+            }
+            
+            // Clear the queue
+            clear() {
+                this.queue = [];
+                this.speaking = false;
+                window.speechSynthesis.cancel();
+            }
+            
+            // Reset for new session
+            reset() {
+                this.clear();
+                this.spokenHistory.clear();
+                this.lastSpokenTime.clear();
+            }
+        }
+        
+        // Create global speech queue
+        const speechQueue = new MobileSpeechQueue();
 
-        console.log('Variables initialized, mobile:', isMobileDevice);
+        console.log('Device type:', isMobileDevice ? (isIOS ? 'iOS' : 'Android') : 'Desktop');
 
         function getUrlParams() {
             const params = {};
@@ -109,63 +324,6 @@
             }
             else if(!isInsideGeofence && !speechActive){
                 updateMessage('Vehicle is on its way to the job location...');
-            }
-        }
-
-        // Simple speech function with strong duplicate prevention
-        function speakText(text) {
-            if (!speechActive || !text) return false;
-            
-            // Normalize the text for comparison
-            const normalizedText = text.toLowerCase().replace(/[^\w\s]/g, '').trim();
-            
-            // Check if we've recently spoken this
-            const lastSpokenTime = recentlySpoken.get(normalizedText);
-            const now = Date.now();
-            
-            if (lastSpokenTime && (now - lastSpokenTime) < SPEECH_COOLDOWN) {
-                console.log('Skipping (too recent):', text);
-                updateMessage(text); // Still update display
-                return false;
-            }
-            
-            // Check if this exact instruction was ever spoken in this session
-            if (spokenInstructionsHistory.has(normalizedText)) {
-                console.log('Skipping (already in history):', text);
-                updateMessage(text); // Still update display
-                return false;
-            }
-            
-            console.log('Speaking new instruction:', text);
-            
-            // Mark as spoken
-            spokenInstructionsHistory.add(normalizedText);
-            recentlySpoken.set(normalizedText, now);
-            
-            // Update display immediately
-            updateMessage(text);
-            
-            try {
-                // DON'T cancel speech - let it queue naturally
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.rate = isMobileDevice ? 0.9 : 1.0;
-                utterance.volume = 1.0;
-                utterance.pitch = 1.0;
-                
-                utterance.onend = () => {
-                    console.log('Finished speaking:', text.substring(0, 30));
-                };
-                
-                utterance.onerror = (e) => {
-                    console.warn('Speech error:', e.error);
-                };
-                
-                window.speechSynthesis.speak(utterance);
-                return true;
-                
-            } catch (error) {
-                console.error('Speech error:', error);
-                return false;
             }
         }
 
@@ -245,7 +403,6 @@
                 }
             }
             
-            // Look at first few steps if no active step
             const allSteps = document.querySelectorAll('.mapbox-directions-step');
             for (let i = 0; i < Math.min(2, allSteps.length); i++) {
                 const step = allSteps[i];
@@ -271,7 +428,6 @@
                 const instructionEl = stepElement.querySelector(selector);
                 if (instructionEl) {
                     const text = instructionEl.textContent.trim();
-                    // Filter out distance/time only text
                     if (text.length > 8 && !text.match(/^\d+\.?\d*\s*(km|mi|ft|miles?|minutes?|min)/i)) {
                         return text;
                     }
@@ -304,9 +460,9 @@
                 
                 updateDistanceInfo(distanceData);
                 
-                // Only speak if we're close enough and haven't spoken this instruction yet
+                // Queue instruction if close enough
                 if (distanceData.distance <= INSTRUCTION_TRIGGER_DISTANCE) {
-                    speakText(distanceData.instruction);
+                    speechQueue.add(distanceData.instruction);
                 }
                 
                 // Move to next step when very close
@@ -318,14 +474,7 @@
                     }
                 }
                 
-            }, 3000); // Check every 3 seconds
-        }
-
-        // Start turn-by-turn navigation  
-        function startTurnByTurnNavigation() {
-            // This function is no longer called from toggleVoiceNavigation
-            // First instruction is handled directly in toggle function
-            console.log('Turn-by-turn navigation already started');
+            }, 3000);
         }
 
         // Stop navigation
@@ -338,6 +487,7 @@
             }
             
             currentStepIndex = 0;
+            speechQueue.clear();
             
             document.getElementById('distance-info').classList.add('hidden');
         }
@@ -355,123 +505,54 @@
             }
         }
 
-        function toggleVoiceNavigation() {
+        async function toggleVoiceNavigation() {
             console.log('Voice button clicked');
             
-            // Check for iOS mute switch reminder
-            if (isMobileDevice && /iPad|iPhone|iPod/.test(navigator.userAgent)) {
-                console.log('iOS device detected - ensure mute switch is OFF');
+            // Initialize speech on first activation
+            if (!speechQueue.initialized) {
+                await speechQueue.init();
             }
             
             speechActive = !speechActive;
             
             if (speechActive) {
-                // Clear speech history for new session
-                spokenInstructionsHistory.clear();
-                recentlySpoken.clear();
+                // Reset queue for new session
+                speechQueue.reset();
                 
                 updateMessage('Voice navigation enabled');
                 
-                // Cancel any existing speech first
-                window.speechSynthesis.cancel();
+                // Queue announcement with priority
+                speechQueue.add('Voice navigation enabled', true);
                 
-                // Small delay to ensure voices are loaded and ready
-                setTimeout(() => {
-                    // Check if voices are available
-                    const voices = window.speechSynthesis.getVoices();
-                    console.log('Available voices:', voices.length);
-                    
-                    if (voices.length === 0) {
-                        console.error('No voices available - speech may not work');
-                        updateMessage('Speech not available - check device settings');
-                        speechActive = false;
-                        updateVoiceButtonState();
-                        return;
-                    }
-                    
-                    // Speak announcement with a callback for when it ends
-                    try {
-                        const announcement = new SpeechSynthesisUtterance('Voice navigation enabled');
-                        announcement.rate = isMobileDevice ? 0.9 : 1.0;
-                        announcement.volume = 1.0;
-                        
-                        // Select a voice if available (helps on some Android devices)
-                        if (voices.length > 0) {
-                            // Try to find an English voice
-                            const englishVoice = voices.find(v => v.lang.startsWith('en'));
-                            if (englishVoice) {
-                                announcement.voice = englishVoice;
-                                console.log('Using voice:', englishVoice.name);
-                            }
+                // Queue first instruction after a delay
+                if (directionsReady) {
+                    setTimeout(() => {
+                        const firstInstruction = getCurrentInstruction();
+                        if (firstInstruction && firstInstruction.length > 8) {
+                            console.log('Queueing first instruction:', firstInstruction);
+                            speechQueue.add(firstInstruction);
                         }
                         
-                        announcement.onend = () => {
-                            console.log('Announcement finished, adding brief pause...');
-                            
-                            // Brief pause after announcement (matching desktop behavior)
-                            setTimeout(() => {
-                                if (directionsReady && speechActive) {
-                                    const firstInstruction = getCurrentInstruction();
-                                    if (firstInstruction && firstInstruction.length > 8) {
-                                        console.log('Speaking first instruction after pause:', firstInstruction);
-                                        speakText(firstInstruction);
-                                        
-                                        // Start distance monitoring after first instruction
-                                        setTimeout(() => {
-                                            startDistanceBasedNavigation();
-                                        }, 3000);
-                                    }
-                                }
-                            }, 800); // Brief 800ms pause matching desktop
-                        };
-                        
-                        announcement.onerror = (e) => {
-                            console.error('Announcement error:', e.error);
-                            updateMessage('Speech error - check device audio settings');
-                            // Fallback: try to speak first instruction anyway
-                            if (directionsReady && speechActive) {
-                                setTimeout(() => {
-                                    const firstInstruction = getCurrentInstruction();
-                                    if (firstInstruction) {
-                                        speakText(firstInstruction);
-                                        setTimeout(() => {
-                                            startDistanceBasedNavigation();
-                                        }, 3000);
-                                    }
-                                }, 2000);
-                            }
-                        };
-                        
-                        window.speechSynthesis.speak(announcement);
-                        console.log('Announcement started');
-                        
-                        // Check if speech is actually working
+                        // Start monitoring
                         setTimeout(() => {
-                            if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
-                                console.error('Speech not working - possible issues:');
-                                console.error('1. iOS: Check mute switch is OFF');
-                                console.error('2. Android: Check media volume is up');
-                                console.error('3. Check browser permissions for speech');
-                                updateMessage('Speech not working - check device settings');
-                            }
-                        }, 500);
-                        
-                    } catch (e) {
-                        console.error('Error with announcement:', e);
-                        updateMessage('Speech error: ' + e.message);
-                    }
-                    
-                    if (!directionsReady) {
-                        setTimeout(() => {
-                            updateMessage('Waiting for route to load...');
+                            startDistanceBasedNavigation();
                         }, 2000);
-                    }
-                }, 100); // Small delay to ensure everything is ready
+                    }, 2000);
+                } else {
+                    setTimeout(() => {
+                        updateMessage('Waiting for route to load...');
+                    }, 3000);
+                }
+                
+                // iOS specific reminder
+                if (isIOS) {
+                    console.log('📱 iOS Device: Make sure mute switch is OFF (not showing orange)');
+                }
                 
             } else {
                 updateMessage('Voice navigation disabled');
                 stopTurnByTurnNavigation();
-                window.speechSynthesis.cancel();
+                speechQueue.clear();
             }
             
             updateVoiceButtonState();
@@ -519,9 +600,13 @@
                             routeSteps = extractRouteSteps(currentRoute);
                             console.log(`Route ready with ${routeSteps.length} steps`);
                             
-                            // If voice was already active, restart navigation
+                            // If voice was already active, queue first instruction
                             if (speechActive) {
-                                startTurnByTurnNavigation();
+                                const firstInstruction = getCurrentInstruction();
+                                if (firstInstruction && firstInstruction.length > 8) {
+                                    speechQueue.add(firstInstruction);
+                                }
+                                startDistanceBasedNavigation();
                             }
                         }
                     }, 2000);
@@ -567,35 +652,16 @@
             const voiceBtn = document.getElementById('voice-button');
             if (voiceBtn) {
                 voiceBtn.addEventListener('click', toggleVoiceNavigation);
-            }
-            
-            // Load voices with retry for mobile
-            function loadVoices() {
-                const voices = window.speechSynthesis.getVoices();
-                console.log('Voices available:', voices.length);
-                if (voices.length === 0) {
-                    // Retry loading voices
-                    setTimeout(loadVoices, 100);
-                } else {
-                    console.log('Voices loaded successfully');
+                
+                // Pre-initialize speech on any touch/click for mobile
+                if (isMobileDevice) {
+                    document.addEventListener('click', async function initOnTouch() {
+                        if (!speechQueue.initialized) {
+                            console.log('Pre-initializing speech on user interaction...');
+                            await speechQueue.init();
+                        }
+                    }, { once: true });
                 }
-            }
-            
-            // Check speech synthesis support and load voices
-            if ('speechSynthesis' in window) {
-                // Load voices immediately
-                loadVoices();
-                
-                // Also listen for voices changed event (mobile Safari)
-                window.speechSynthesis.onvoiceschanged = loadVoices;
-                
-                // Warm up speech synthesis on first user interaction (required for mobile)
-                document.addEventListener('click', function initSpeech() {
-                    const initUtterance = new SpeechSynthesisUtterance('');
-                    initUtterance.volume = 0.01;
-                    window.speechSynthesis.speak(initUtterance);
-                    console.log('Speech synthesis initialized');
-                }, { once: true });
             }
         });
 
