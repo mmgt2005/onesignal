@@ -125,14 +125,14 @@
             
             if (lastSpokenTime && (now - lastSpokenTime) < SPEECH_COOLDOWN) {
                 console.log('Skipping (too recent):', text);
+                updateMessage(text); // Still update display
                 return false;
             }
             
             // Check if this exact instruction was ever spoken in this session
             if (spokenInstructionsHistory.has(normalizedText)) {
                 console.log('Skipping (already in history):', text);
-                // But still update the display
-                updateMessage(text);
+                updateMessage(text); // Still update display
                 return false;
             }
             
