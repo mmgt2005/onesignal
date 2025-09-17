@@ -112,7 +112,7 @@
             }
         }
 
-        // Enhanced speech function with mobile message coordination
+        // Mobile-specific timing approach - use fixed delays instead of events
         function speakText(text, shouldUpdateMessage = true) {
             if (!speechActive || !text) return;
             
@@ -127,13 +127,9 @@
             console.log('Speaking:', text);
             spokenInstructions.add(textKey);
             
-            // For desktop: update message immediately
-            // For mobile: wait for speech to start to coordinate timing
+            // Desktop: immediate message update (working perfectly)
             if (!isMobileDevice && shouldUpdateMessage) {
                 updateMessage(text);
-                console.log('Desktop: Message updated immediately');
-            } else if (isMobileDevice && shouldUpdateMessage) {
-                console.log('Mobile: Waiting for speech to start before updating message');
             }
             
             try {
@@ -141,14 +137,13 @@
                 utterance.rate = isMobileDevice ? 0.7 : 0.8;
                 utterance.volume = 1.0;
                 
-                utterance.onstart = () => {
-                    console.log('Speech started:', text);
-                    // For mobile: update message when speech actually starts
-                    if (isMobileDevice && shouldUpdateMessage) {
+                // Mobile: Use fixed delay instead of unreliable events
+                if (isMobileDevice && shouldUpdateMessage) {
+                    setTimeout(() => {
                         updateMessage(text);
-                        console.log('Mobile: Message updated when speech started');
-                    }
-                };
+                        console.log('Mobile: Message updated after 1.5 second delay');
+                    }, 1500); // 1.5 second delay to match typical mobile speech start time
+                }
                 
                 utterance.onend = () => {
                     console.log('Speech completed');
@@ -156,10 +151,11 @@
                 
                 utterance.onerror = (e) => {
                     console.log('Speech error:', e.error);
-                    // Fallback: show message even if speech fails on mobile
+                    // Fallback: show message if not already shown
                     if (isMobileDevice && shouldUpdateMessage) {
-                        updateMessage(text);
-                        console.log('Mobile: Message updated after speech error');
+                        setTimeout(() => {
+                            updateMessage(text);
+                        }, 500);
                     }
                 };
                 
@@ -170,7 +166,6 @@
                 // Fallback for mobile
                 if (isMobileDevice && shouldUpdateMessage) {
                     updateMessage(text);
-                    console.log('Mobile: Message updated after speech creation error');
                 }
             }
         }
