@@ -89,6 +89,12 @@
         function updateMessage(text, priority = 'normal', temporary = false) {
             const msg = document.getElementById('message');
             
+            // For mobile: don't update message at all if speech is active (prevents visual interruption cues)
+            if (isMobileDevice && mobileCurrentUtterance && priority !== 'high') {
+                console.log('MOBILE: Blocking message update during speech -', text);
+                return;
+            }
+            
             if (speechActive && priority !== 'high' && (isCurrentlySpeaking || (isMobileDevice && mobileCurrentUtterance))) {
                 console.log('Message update queued (speech active):', text);
                 return;
@@ -239,13 +245,72 @@
             }
         }
         
+        // Desktop speech function
+        function speakOnDesktop(text) {
+            if (isMobileDevice || !speechActive || !text) return;
+            
+            const hash = text.toLowerCase().trim();
+            
+            if (spokenInstructions.has(hash)) {
+                console.log('DESKTOP: Already spoken -', text);
+                return;
+            }
+            
+            if (isCurrentlySpeaking) {
+                console.log('DESKTOP: Currently speaking, skipping -', text);
+                return;
+            }
+            
+            console.log('DESKTOP: Speaking -', text);
+            isCurrentlySpeaking = true;
+            spokenInstructions.add(hash);
+            
+            if (window.speechSynthesis.speaking) {
+                window.speechSynthesis.cancel();
+            }
+            
+            setTimeout(() => {
+                if (!speechActive) {
+                    isCurrentlySpeaking = false;
+                    return;
+                }
+                
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.lang = 'en-US';
+                utterance.rate = 0.8;
+                utterance.volume = 0.9;
+                
+                utterance.onstart = () => {
+                    console.log('DESKTOP: Speech started');
+                };
+                
+                utterance.onend = () => {
+                    console.log('DESKTOP: Speech ended');
+                    isCurrentlySpeaking = false;
+                };
+                
+                utterance.onerror = (e) => {
+                    console.log('DESKTOP: Speech error -', e.error);
+                    isCurrentlySpeaking = false;
+                };
+                
+                window.speechSynthesis.speak(utterance);
+                
+        // Unified speech function
+        function speakInstruction(text) {
+            if (!text || !speechActive) return;
+            
+            if (isMobileDevice) {
+                speakOnMobile(text);
+            } else {
+                speakOnDesktop(text);
+            }
+        }
+
         // Replace mobile speech entirely
         function speakOnMobile(text) {
             speakOnMobileNuclear(text);
         }
-
-        // Desktop speech function
-        function speakOnDesktop(text) {
             if (isMobileDevice || !speechActive || !text) return;
             
             const hash = text.toLowerCase().trim();
@@ -511,22 +576,41 @@
             
             window.speechSynthesis.cancel();
             
-            // Start first instruction immediately
-            const firstInstruction = getCurrentInstruction();
-            if (firstInstruction && firstInstruction.length > 8) {
-                console.log('Speaking first instruction:', firstInstruction);
-                updateMessage(firstInstruction, 'high');
-                speakInstruction(firstInstruction);
+            // For mobile: wait before speaking first instruction to avoid conflicts
+            if (isMobileDevice) {
+                setTimeout(() => {
+                    const firstInstruction = getCurrentInstruction();
+                    if (firstInstruction && firstInstruction.length > 8) {
+                        console.log('MOBILE: Speaking first instruction after delay:', firstInstruction);
+                        updateMessage(firstInstruction, 'high');
+                        speakInstruction(firstInstruction);
+                        
+                        // Mark this instruction as triggered to prevent duplicates
+                        const stepKey = `${currentStepIndex}_${firstInstruction}`;
+                        nextInstructionTriggered.add(stepKey);
+                    }
+                    
+                    // Start distance monitoring even later
+                    setTimeout(() => {
+                        startDistanceBasedNavigation();
+                    }, 5000); // 5 second delay for mobile
+                }, 2000); // 2 second delay before first instruction
+            } else {
+                // Desktop: immediate execution
+                const firstInstruction = getCurrentInstruction();
+                if (firstInstruction && firstInstruction.length > 8) {
+                    console.log('Speaking first instruction:', firstInstruction);
+                    updateMessage(firstInstruction, 'high');
+                    speakInstruction(firstInstruction);
+                    
+                    const stepKey = `${currentStepIndex}_${firstInstruction}`;
+                    nextInstructionTriggered.add(stepKey);
+                }
                 
-                // Mark this instruction as triggered to prevent duplicates
-                const stepKey = `${currentStepIndex}_${firstInstruction}`;
-                nextInstructionTriggered.add(stepKey);
+                setTimeout(() => {
+                    startDistanceBasedNavigation();
+                }, 2000);
             }
-            
-            // Start distance monitoring quickly
-            setTimeout(() => {
-                startDistanceBasedNavigation();
-            }, isMobileDevice ? 2000 : 1500); // Faster startup
         }
 
         function stopTurnByTurnNavigation() {
@@ -571,17 +655,19 @@
                     updateMessage('Voice navigation enabled', 'high');
                     speakInstruction('Voice navigation enabled');
                     
-                    // For mobile: check if speech is active using nuclear system
+                    // For mobile: wait much longer and check more carefully
                     if (isMobileDevice) {
-                        const nuclearCheck = () => {
+                        const patientCheck = () => {
                             if (!mobileCurrentUtterance) {
-                                console.log('MOBILE NUCLEAR: Ready for navigation');
+                                console.log('MOBILE NUCLEAR: Speech completely finished, starting navigation');
                                 startTurnByTurnNavigation();
                             } else {
-                                setTimeout(nuclearCheck, 500); // Check every 500ms
+                                console.log('MOBILE NUCLEAR: Still speaking, waiting longer...');
+                                setTimeout(patientCheck, 1000); // Check every 1 second, not 500ms
                             }
                         };
-                        setTimeout(nuclearCheck, 1000);
+                        // Wait 3 seconds before even starting to check
+                        setTimeout(patientCheck, 3000);
                     } else {
                         setTimeout(() => {
                             startTurnByTurnNavigation();
