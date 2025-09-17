@@ -49,15 +49,14 @@
         let directionsReady = false;
         let currentRoute = null;
         
-        // Speech management - simplified approach
+        // Simplified speech system
         let isCurrentlySpeaking = false;
         let spokenInstructions = new Set();
         let isMobileDevice = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
         
-        // Simplified mobile speech variables
-        let mobileInstructionQueue = [];
-        let mobileCurrentlyPlaying = false;
+        // Mobile speech with minimal complexity
         let mobileSpokenTexts = new Set();
+        let mobileCurrentUtterance = null;
         
         // Distance-based navigation
         const INSTRUCTION_TRIGGER_DISTANCE = 300; // feet
@@ -88,17 +87,11 @@
 
         function updateMessage(text, priority = 'normal', temporary = false) {
             const msg = document.getElementById('message');
-            
-            if (speechActive && priority !== 'high' && (isCurrentlySpeaking || (isMobileDevice && mobileCurrentlyPlaying))) {
-                console.log('Message update queued (speech active):', text);
-                return;
-            }
-            
             msg.textContent = text;
             
             if (temporary && !speechActive) {
                 setTimeout(() => {
-                    if (!speechActive && !isCurrentlySpeaking && !(isMobileDevice && mobileCurrentlyPlaying)) {
+                    if (!speechActive && !isCurrentlySpeaking && !(isMobileDevice && mobileCurrentUtterance)) {
                         msg.textContent = 'Vehicle is on its way to the job location...';
                     }
                 }, 5000);
@@ -134,227 +127,88 @@
             }
         }
 
-        // Prime speech engine on mobile to reduce delays
-        let speechEnginePrimed = false;
-        
-        function primeSpeechEngine() {
-            if (!isMobileDevice || speechEnginePrimed) return;
-            
-            try {
-                // Create a silent utterance to initialize the engine
-                const primeUtterance = new SpeechSynthesisUtterance(' ');
-                primeUtterance.volume = 0;
-                primeUtterance.rate = 1.0;
-                
-                primeUtterance.onend = () => {
-                    speechEnginePrimed = true;
-                    console.log('MOBILE: Speech engine primed');
-                };
-                
-                primeUtterance.onerror = () => {
-                    speechEnginePrimed = true;
-                };
-                
-                window.speechSynthesis.speak(primeUtterance);
-                
-            } catch (e) {
-                console.log('Speech priming failed:', e);
-                speechEnginePrimed = true;
-            }
-        }
-
-        // NUCLEAR OPTION: Mobile speech with ZERO interference
-        let mobileCurrentUtterance = null;
-        let mobileLastSpokenText = '';
-        let mobileLastSpokenTime = 0;
-        
-        function speakOnMobileNuclear(text) {
+        // Simple mobile speech - no complex logic
+        function speakOnMobile(text) {
             if (!isMobileDevice || !speechActive || !text) return;
             
             const cleanText = text.trim();
-            const now = Date.now();
             
-            // Prevent duplicates with timing check
-            if (mobileLastSpokenText === cleanText && (now - mobileLastSpokenTime) < 30000) {
-                console.log('MOBILE NUCLEAR: Blocked duplicate -', cleanText);
+            // Simple duplicate prevention
+            if (mobileSpokenTexts.has(cleanText)) {
+                console.log('Mobile: Already spoken -', cleanText);
                 return;
             }
             
-            // NEVER interrupt ongoing speech
+            // Don't speak if currently speaking
             if (mobileCurrentUtterance) {
-                console.log('MOBILE NUCLEAR: Speech already active, blocking');
+                console.log('Mobile: Currently speaking, skipping');
                 return;
             }
             
-            console.log('MOBILE NUCLEAR: Speaking -', cleanText);
-            
-            // Record this speech
-            mobileLastSpokenText = cleanText;
-            mobileLastSpokenTime = now;
+            console.log('Mobile: Speaking -', cleanText);
+            mobileSpokenTexts.add(cleanText);
             
             try {
-                // Create utterance with absolute minimal settings
                 mobileCurrentUtterance = new SpeechSynthesisUtterance(cleanText);
-                mobileCurrentUtterance.lang = 'en-US';
                 mobileCurrentUtterance.rate = 0.8;
                 mobileCurrentUtterance.volume = 1.0;
                 
-                let completed = false;
-                
-                mobileCurrentUtterance.onstart = function() {
-                    console.log('MOBILE NUCLEAR: Started speaking');
+                mobileCurrentUtterance.onstart = () => {
+                    console.log('Mobile: Speech started');
                 };
                 
-                mobileCurrentUtterance.onend = function() {
-                    if (!completed) {
-                        completed = true;
-                        console.log('MOBILE NUCLEAR: Speech ended normally');
-                        mobileCurrentUtterance = null;
-                    }
+                mobileCurrentUtterance.onend = () => {
+                    console.log('Mobile: Speech ended');
+                    mobileCurrentUtterance = null;
                 };
                 
-                mobileCurrentUtterance.onerror = function(event) {
-                    if (!completed) {
-                        completed = true;
-                        console.log('MOBILE NUCLEAR: Speech error -', event.error);
-                        mobileCurrentUtterance = null;
-                    }
+                mobileCurrentUtterance.onerror = (e) => {
+                    console.log('Mobile: Speech error -', e.error);
+                    mobileCurrentUtterance = null;
                 };
                 
-                // Single safety net - much longer timeout
+                // Safety timeout
                 setTimeout(() => {
-                    if (!completed && mobileCurrentUtterance) {
-                        completed = true;
-                        console.log('MOBILE NUCLEAR: 45 second timeout');
+                    if (mobileCurrentUtterance) {
                         mobileCurrentUtterance = null;
                     }
-                }, 45000); // 45 second timeout
+                }, 15000);
                 
-                // Speak with NO other operations
                 window.speechSynthesis.speak(mobileCurrentUtterance);
                 
             } catch (error) {
-                console.error('MOBILE NUCLEAR: Speech error:', error);
+                console.error('Mobile: Speech error:', error);
                 mobileCurrentUtterance = null;
             }
         }
-        
-        // Desktop speech function
+
+        // Desktop speech
         function speakOnDesktop(text) {
             if (isMobileDevice || !speechActive || !text) return;
             
             const hash = text.toLowerCase().trim();
             
-            if (spokenInstructions.has(hash)) {
-                console.log('DESKTOP: Already spoken -', text);
+            if (spokenInstructions.has(hash) || isCurrentlySpeaking) {
                 return;
             }
             
-            if (isCurrentlySpeaking) {
-                console.log('DESKTOP: Currently speaking, skipping -', text);
-                return;
-            }
-            
-            console.log('DESKTOP: Speaking -', text);
+            console.log('Desktop: Speaking -', text);
             isCurrentlySpeaking = true;
             spokenInstructions.add(hash);
             
-            if (window.speechSynthesis.speaking) {
-                window.speechSynthesis.cancel();
-            }
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = 0.8;
+            utterance.volume = 0.9;
             
-            setTimeout(() => {
-                if (!speechActive) {
-                    isCurrentlySpeaking = false;
-                    return;
-                }
-                
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.lang = 'en-US';
-                utterance.rate = 0.8;
-                utterance.volume = 0.9;
-                
-                utterance.onstart = () => {
-                    console.log('DESKTOP: Speech started');
-                };
-                
-                utterance.onend = () => {
-                    console.log('DESKTOP: Speech ended');
-                    isCurrentlySpeaking = false;
-                };
-                
-                utterance.onerror = (e) => {
-                    console.log('DESKTOP: Speech error -', e.error);
-                    isCurrentlySpeaking = false;
-                };
-                
-                window.speechSynthesis.speak(utterance);
-                
-        // Unified speech function
-        function speakInstruction(text) {
-            if (!text || !speechActive) return;
+            utterance.onend = () => {
+                isCurrentlySpeaking = false;
+            };
             
-            if (isMobileDevice) {
-                speakOnMobile(text);
-            } else {
-                speakOnDesktop(text);
-            }
-        }
-
-        // Replace mobile speech entirely
-        function speakOnMobile(text) {
-            speakOnMobileNuclear(text);
-        }
-            if (isMobileDevice || !speechActive || !text) return;
+            utterance.onerror = () => {
+                isCurrentlySpeaking = false;
+            };
             
-            const hash = text.toLowerCase().trim();
-            
-            if (spokenInstructions.has(hash)) {
-                console.log('DESKTOP: Already spoken -', text);
-                return;
-            }
-            
-            if (isCurrentlySpeaking) {
-                console.log('DESKTOP: Currently speaking, skipping -', text);
-                return;
-            }
-            
-            console.log('DESKTOP: Speaking -', text);
-            isCurrentlySpeaking = true;
-            spokenInstructions.add(hash);
-            
-            if (window.speechSynthesis.speaking) {
-                window.speechSynthesis.cancel();
-            }
-            
-            setTimeout(() => {
-                if (!speechActive) {
-                    isCurrentlySpeaking = false;
-                    return;
-                }
-                
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.lang = 'en-US';
-                utterance.rate = 0.8;
-                utterance.volume = 0.9;
-                
-                utterance.onstart = () => {
-                    console.log('DESKTOP: Speech started');
-                };
-                
-                utterance.onend = () => {
-                    console.log('DESKTOP: Speech ended');
-                    isCurrentlySpeaking = false;
-                };
-                
-                utterance.onerror = (e) => {
-                    console.log('DESKTOP: Speech error -', e.error);
-                    isCurrentlySpeaking = false;
-                };
-                
-                window.speechSynthesis.speak(utterance);
-                
-            }, 500);
+            window.speechSynthesis.speak(utterance);
         }
 
         // Unified speech function
@@ -525,12 +379,6 @@
             distanceCheckInterval = setInterval(() => {
                 if (!speechActive || !lastUserLocation) return;
                 
-                // For mobile: skip entirely if processing speech queue
-                if (isMobileDevice && (mobileSpeechInProgress || mobileProcessingQueue)) {
-                    console.log('MOBILE: Skipping distance check - speech system busy');
-                    return;
-                }
-                
                 const distanceData = calculateDistanceToNextStep(lastUserLocation);
                 if (!distanceData) return;
                 
@@ -556,7 +404,7 @@
                     }
                 }
                 
-            }, isMobileDevice ? 5000 : 2000); // 5 second intervals on mobile to reduce interference
+            }, 3000);
         }
 
         function startTurnByTurnNavigation() {
@@ -564,13 +412,9 @@
             
             console.log('Starting turn-by-turn navigation');
             
-            // Reset tracking
             spokenInstructions.clear();
             nextInstructionTriggered.clear();
             
-            window.speechSynthesis.cancel();
-            
-            // Simple delay for first instruction
             setTimeout(() => {
                 const firstInstruction = getCurrentInstruction();
                 if (firstInstruction && firstInstruction.length > 8) {
@@ -578,15 +422,14 @@
                     updateMessage(firstInstruction, 'high');
                     speakInstruction(firstInstruction);
                     
-                    // Mark this instruction as triggered to prevent duplicates
                     const stepKey = `${currentStepIndex}_${firstInstruction}`;
                     nextInstructionTriggered.add(stepKey);
                 }
                 
-                // Start distance monitoring
                 setTimeout(() => {
                     startDistanceBasedNavigation();
-                }, 3000); // 3 second delay for all devices
+                }, 4000);
+                
             }, 1000);
         }
 
@@ -605,10 +448,8 @@
             currentStepIndex = 0;
             
             if (isMobileDevice) {
-                mobileInstructionQueue = [];
-                mobileCurrentlyPlaying = false;
                 mobileSpokenTexts.clear();
-                console.log('Mobile: Cleared all speech systems');
+                mobileCurrentUtterance = null;
             }
             
             document.getElementById('distance-info').classList.add('hidden');
@@ -627,10 +468,9 @@
                     updateMessage('Voice navigation enabled', 'high');
                     speakInstruction('Voice navigation enabled');
                     
-                    // Simple delay before starting navigation
                     setTimeout(() => {
                         startTurnByTurnNavigation();
-                    }, isMobileDevice ? 4000 : 2500); // 4 seconds for mobile
+                    }, 3000);
                 }
             } else {
                 updateMessage('Voice navigation disabled', 'high', true);
@@ -708,10 +548,7 @@
                 directions.setOrigin([coords.longitude,coords.latitude]);
             }
             
-            // NEVER check geofence if mobile speech is in progress
-            if (!(isMobileDevice && mobileSpeechInProgress) && !isCurrentlySpeaking) {
-                checkGeofence(userEmail,coords.latitude,coords.longitude);
-            }
+            checkGeofence(userEmail,coords.latitude,coords.longitude);
         }
 
         function onGeolocationError(err){
