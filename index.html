@@ -113,7 +113,7 @@
         }
 
         // Enhanced speech function with mobile message coordination
-        function speakText(text, updateMessageImmediately = true) {
+        function speakText(text, shouldUpdateMessage = true) {
             if (!speechActive || !text) return;
             
             const textKey = text.toLowerCase().trim();
@@ -127,10 +127,9 @@
             console.log('Speaking:', text);
             spokenInstructions.add(textKey);
             
-            // For mobile: delay message update until speech actually starts
-            if (isMobileDevice && updateMessageImmediately) {
-                console.log('Mobile: Delaying message update until speech starts');
-            } else if (updateMessageImmediately) {
+            // For desktop: update message immediately
+            // For mobile: wait for speech to start
+            if (!isMobileDevice && shouldUpdateMessage) {
                 updateMessage(text);
             }
             
@@ -140,9 +139,9 @@
                 utterance.volume = 1.0;
                 
                 utterance.onstart = () => {
-                    console.log('Speech started');
-                    // Update message when speech actually starts on mobile
-                    if (isMobileDevice && updateMessageImmediately) {
+                    console.log('Speech started:', text);
+                    // For mobile: update message when speech actually starts
+                    if (isMobileDevice && shouldUpdateMessage) {
                         updateMessage(text);
                     }
                 };
@@ -153,8 +152,8 @@
                 
                 utterance.onerror = (e) => {
                     console.log('Speech error:', e.error);
-                    // Fallback: show message even if speech fails
-                    if (isMobileDevice && updateMessageImmediately) {
+                    // Fallback: show message even if speech fails on mobile
+                    if (isMobileDevice && shouldUpdateMessage) {
                         updateMessage(text);
                     }
                 };
@@ -163,8 +162,8 @@
                 
             } catch (error) {
                 console.error('Speech error:', error);
-                // Fallback: show message if speech creation fails
-                if (isMobileDevice && updateMessageImmediately) {
+                // Fallback for mobile
+                if (isMobileDevice && shouldUpdateMessage) {
                     updateMessage(text);
                 }
             }
@@ -312,12 +311,8 @@
                     
                     nextInstructionTriggered.add(stepKey);
                     
-                    // For desktop: update message immediately
-                    // For mobile: let speech coordinate the message update
-                    if (!isMobileDevice) {
-                        updateMessage(distanceData.instruction);
-                    }
-                    speakText(distanceData.instruction);
+                    // Desktop: show message immediately; Mobile: wait for speech
+                    speakText(distanceData.instruction, true);
                 }
                 
                 if (distanceData.distance <= 50) {
@@ -347,12 +342,8 @@
                 if (firstInstruction && firstInstruction.length > 8) {
                     console.log('Speaking first instruction:', firstInstruction);
                     
-                    // For desktop: update message immediately
-                    // For mobile: let speech coordinate the message update
-                    if (!isMobileDevice) {
-                        updateMessage(firstInstruction);
-                    }
-                    speakText(firstInstruction);
+                    // Desktop: show message immediately; Mobile: wait for speech
+                    speakText(firstInstruction, true);
                     
                     // Mark as triggered to prevent repeats
                     const stepKey = `${currentStepIndex}_${firstInstruction}`;
@@ -402,15 +393,14 @@
             
             if (speechActive) {
                 if (!directionsReady) {
-                    // For this case, show message immediately since it's informational
                     updateMessage('Waiting for route to load...');
                     speakText('Please wait for the route to load.', false);
                 } else {
-                    // For mobile: don't show message immediately, let speech coordinate it
+                    // Desktop: show message immediately; Mobile: wait for speech
                     if (!isMobileDevice) {
                         updateMessage('Voice navigation enabled');
                     }
-                    speakText('Voice navigation enabled');
+                    speakText('Voice navigation enabled', true);
                     
                     // Start turn-by-turn navigation after voice enabled message
                     setTimeout(() => {
