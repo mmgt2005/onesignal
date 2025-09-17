@@ -49,12 +49,15 @@
         let directionsReady = false;
         let currentRoute = null;
         
-        // Speech management
+        // Speech management - simplified
         let isCurrentlySpeaking = false;
         let spokenInstructions = new Set();
         let isMobileDevice = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        let mobileSpokenInstructions = new Map();
-        let mobileSpeechInProgress = false;
+        
+        // Mobile-only nuclear speech system
+        let mobileCurrentUtterance = null;
+        let mobileLastSpokenText = '';
+        let mobileLastSpokenTime = 0;
         
         // Distance-based navigation
         const INSTRUCTION_TRIGGER_DISTANCE = 300; // feet
@@ -86,7 +89,7 @@
         function updateMessage(text, priority = 'normal', temporary = false) {
             const msg = document.getElementById('message');
             
-            if (speechActive && priority !== 'high' && (isCurrentlySpeaking || (isMobileDevice && mobileSpeechInProgress))) {
+            if (speechActive && priority !== 'high' && (isCurrentlySpeaking || (isMobileDevice && mobileCurrentUtterance))) {
                 console.log('Message update queued (speech active):', text);
                 return;
             }
@@ -95,7 +98,7 @@
             
             if (temporary && !speechActive) {
                 setTimeout(() => {
-                    if (!speechActive && !isCurrentlySpeaking && !(isMobileDevice && mobileSpeechInProgress)) {
+                    if (!speechActive && !isCurrentlySpeaking && !(isMobileDevice && mobileCurrentUtterance)) {
                         msg.textContent = 'Vehicle is on its way to the job location...';
                     }
                 }, 5000);
@@ -566,21 +569,19 @@
                     speakInstruction('Please wait for the route to load.');
                 } else {
                     updateMessage('Voice navigation enabled', 'high');
-                    
-                    // Speak immediately with no delay
                     speakInstruction('Voice navigation enabled');
                     
-                    // For mobile: ultra-fast checking
+                    // For mobile: check if speech is active using nuclear system
                     if (isMobileDevice) {
-                        const ultraFastCheck = () => {
-                            if (!mobileSpeechInProgress) {
-                                console.log('MOBILE: Ready for navigation');
+                        const nuclearCheck = () => {
+                            if (!mobileCurrentUtterance) {
+                                console.log('MOBILE NUCLEAR: Ready for navigation');
                                 startTurnByTurnNavigation();
                             } else {
-                                setTimeout(ultraFastCheck, 250); // Check every 250ms
+                                setTimeout(nuclearCheck, 500); // Check every 500ms
                             }
                         };
-                        setTimeout(ultraFastCheck, 500); // Start checking after 500ms
+                        setTimeout(nuclearCheck, 1000);
                     } else {
                         setTimeout(() => {
                             startTurnByTurnNavigation();
