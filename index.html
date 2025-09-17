@@ -357,6 +357,12 @@
 
         function toggleVoiceNavigation() {
             console.log('Voice button clicked');
+            
+            // Check for iOS mute switch reminder
+            if (isMobileDevice && /iPad|iPhone|iPod/.test(navigator.userAgent)) {
+                console.log('iOS device detected - ensure mute switch is OFF');
+            }
+            
             speechActive = !speechActive;
             
             if (speechActive) {
@@ -369,59 +375,99 @@
                 // Cancel any existing speech first
                 window.speechSynthesis.cancel();
                 
-                // Speak announcement with a callback for when it ends
-                try {
-                    const announcement = new SpeechSynthesisUtterance('Voice navigation enabled');
-                    announcement.rate = isMobileDevice ? 0.9 : 1.0;
+                // Small delay to ensure voices are loaded and ready
+                setTimeout(() => {
+                    // Check if voices are available
+                    const voices = window.speechSynthesis.getVoices();
+                    console.log('Available voices:', voices.length);
                     
-                    announcement.onend = () => {
-                        console.log('Announcement finished, adding brief pause...');
+                    if (voices.length === 0) {
+                        console.error('No voices available - speech may not work');
+                        updateMessage('Speech not available - check device settings');
+                        speechActive = false;
+                        updateVoiceButtonState();
+                        return;
+                    }
+                    
+                    // Speak announcement with a callback for when it ends
+                    try {
+                        const announcement = new SpeechSynthesisUtterance('Voice navigation enabled');
+                        announcement.rate = isMobileDevice ? 0.9 : 1.0;
+                        announcement.volume = 1.0;
                         
-                        // Brief pause after announcement (matching desktop behavior)
-                        setTimeout(() => {
-                            if (directionsReady && speechActive) {
-                                const firstInstruction = getCurrentInstruction();
-                                if (firstInstruction && firstInstruction.length > 8) {
-                                    console.log('Speaking first instruction after pause:', firstInstruction);
-                                    speakText(firstInstruction);
-                                    
-                                    // Start distance monitoring after first instruction
-                                    setTimeout(() => {
-                                        startDistanceBasedNavigation();
-                                    }, 3000);
-                                }
+                        // Select a voice if available (helps on some Android devices)
+                        if (voices.length > 0) {
+                            // Try to find an English voice
+                            const englishVoice = voices.find(v => v.lang.startsWith('en'));
+                            if (englishVoice) {
+                                announcement.voice = englishVoice;
+                                console.log('Using voice:', englishVoice.name);
                             }
-                        }, 800); // Brief 800ms pause matching desktop
-                    };
-                    
-                    announcement.onerror = (e) => {
-                        console.error('Announcement error:', e);
-                        // Fallback: try to speak first instruction anyway
-                        if (directionsReady && speechActive) {
-                            setTimeout(() => {
-                                const firstInstruction = getCurrentInstruction();
-                                if (firstInstruction) {
-                                    speakText(firstInstruction);
-                                    setTimeout(() => {
-                                        startDistanceBasedNavigation();
-                                    }, 3000);
-                                }
-                            }, 2000);
                         }
-                    };
+                        
+                        announcement.onend = () => {
+                            console.log('Announcement finished, adding brief pause...');
+                            
+                            // Brief pause after announcement (matching desktop behavior)
+                            setTimeout(() => {
+                                if (directionsReady && speechActive) {
+                                    const firstInstruction = getCurrentInstruction();
+                                    if (firstInstruction && firstInstruction.length > 8) {
+                                        console.log('Speaking first instruction after pause:', firstInstruction);
+                                        speakText(firstInstruction);
+                                        
+                                        // Start distance monitoring after first instruction
+                                        setTimeout(() => {
+                                            startDistanceBasedNavigation();
+                                        }, 3000);
+                                    }
+                                }
+                            }, 800); // Brief 800ms pause matching desktop
+                        };
+                        
+                        announcement.onerror = (e) => {
+                            console.error('Announcement error:', e.error);
+                            updateMessage('Speech error - check device audio settings');
+                            // Fallback: try to speak first instruction anyway
+                            if (directionsReady && speechActive) {
+                                setTimeout(() => {
+                                    const firstInstruction = getCurrentInstruction();
+                                    if (firstInstruction) {
+                                        speakText(firstInstruction);
+                                        setTimeout(() => {
+                                            startDistanceBasedNavigation();
+                                        }, 3000);
+                                    }
+                                }, 2000);
+                            }
+                        };
+                        
+                        window.speechSynthesis.speak(announcement);
+                        console.log('Announcement started');
+                        
+                        // Check if speech is actually working
+                        setTimeout(() => {
+                            if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
+                                console.error('Speech not working - possible issues:');
+                                console.error('1. iOS: Check mute switch is OFF');
+                                console.error('2. Android: Check media volume is up');
+                                console.error('3. Check browser permissions for speech');
+                                updateMessage('Speech not working - check device settings');
+                            }
+                        }, 500);
+                        
+                    } catch (e) {
+                        console.error('Error with announcement:', e);
+                        updateMessage('Speech error: ' + e.message);
+                    }
                     
-                    window.speechSynthesis.speak(announcement);
-                    console.log('Announcement started');
-                    
-                } catch (e) {
-                    console.error('Error with announcement:', e);
-                }
+                    if (!directionsReady) {
+                        setTimeout(() => {
+                            updateMessage('Waiting for route to load...');
+                        }, 2000);
+                    }
+                }, 100); // Small delay to ensure everything is ready
                 
-                if (!directionsReady) {
-                    setTimeout(() => {
-                        updateMessage('Waiting for route to load...');
-                    }, 2000);
-                }
             } else {
                 updateMessage('Voice navigation disabled');
                 stopTurnByTurnNavigation();
@@ -521,6 +567,35 @@
             const voiceBtn = document.getElementById('voice-button');
             if (voiceBtn) {
                 voiceBtn.addEventListener('click', toggleVoiceNavigation);
+            }
+            
+            // Load voices with retry for mobile
+            function loadVoices() {
+                const voices = window.speechSynthesis.getVoices();
+                console.log('Voices available:', voices.length);
+                if (voices.length === 0) {
+                    // Retry loading voices
+                    setTimeout(loadVoices, 100);
+                } else {
+                    console.log('Voices loaded successfully');
+                }
+            }
+            
+            // Check speech synthesis support and load voices
+            if ('speechSynthesis' in window) {
+                // Load voices immediately
+                loadVoices();
+                
+                // Also listen for voices changed event (mobile Safari)
+                window.speechSynthesis.onvoiceschanged = loadVoices;
+                
+                // Warm up speech synthesis on first user interaction (required for mobile)
+                document.addEventListener('click', function initSpeech() {
+                    const initUtterance = new SpeechSynthesisUtterance('');
+                    initUtterance.volume = 0.01;
+                    window.speechSynthesis.speak(initUtterance);
+                    console.log('Speech synthesis initialized');
+                }, { once: true });
             }
         });
 
