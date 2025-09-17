@@ -160,143 +160,85 @@
             }
         }
 
-        // MOBILE-ONLY: Ultra-simple speech system with maximum protection
-        let mobileOnlySpeechQueue = [];
-        let mobileProcessingQueue = false;
+        // NUCLEAR OPTION: Mobile speech with ZERO interference
+        let mobileCurrentUtterance = null;
+        let mobileLastSpokenText = '';
+        let mobileLastSpokenTime = 0;
         
-        function addToMobileSpeechQueue(text) {
+        function speakOnMobileNuclear(text) {
             if (!isMobileDevice || !speechActive || !text) return;
             
             const cleanText = text.trim();
+            const now = Date.now();
             
-            // Never add duplicates to queue
-            if (mobileSpokenInstructions.has(cleanText)) {
-                console.log('MOBILE: Duplicate blocked from queue -', cleanText);
+            // Prevent duplicates with timing check
+            if (mobileLastSpokenText === cleanText && (now - mobileLastSpokenTime) < 30000) {
+                console.log('MOBILE NUCLEAR: Blocked duplicate -', cleanText);
                 return;
             }
             
-            // Never add if already in queue
-            if (mobileOnlySpeechQueue.includes(cleanText)) {
-                console.log('MOBILE: Already in queue -', cleanText);
+            // NEVER interrupt ongoing speech
+            if (mobileCurrentUtterance) {
+                console.log('MOBILE NUCLEAR: Speech already active, blocking');
                 return;
             }
             
-            console.log('MOBILE: Adding to queue -', cleanText);
-            mobileOnlySpeechQueue.push(cleanText);
+            console.log('MOBILE NUCLEAR: Speaking -', cleanText);
             
-            // Process queue if not already processing
-            if (!mobileProcessingQueue) {
-                processMobileSpeechQueue();
+            // Record this speech
+            mobileLastSpokenText = cleanText;
+            mobileLastSpokenTime = now;
+            
+            try {
+                // Create utterance with absolute minimal settings
+                mobileCurrentUtterance = new SpeechSynthesisUtterance(cleanText);
+                mobileCurrentUtterance.lang = 'en-US';
+                mobileCurrentUtterance.rate = 0.8;
+                mobileCurrentUtterance.volume = 1.0;
+                
+                let completed = false;
+                
+                mobileCurrentUtterance.onstart = function() {
+                    console.log('MOBILE NUCLEAR: Started speaking');
+                };
+                
+                mobileCurrentUtterance.onend = function() {
+                    if (!completed) {
+                        completed = true;
+                        console.log('MOBILE NUCLEAR: Speech ended normally');
+                        mobileCurrentUtterance = null;
+                    }
+                };
+                
+                mobileCurrentUtterance.onerror = function(event) {
+                    if (!completed) {
+                        completed = true;
+                        console.log('MOBILE NUCLEAR: Speech error -', event.error);
+                        mobileCurrentUtterance = null;
+                    }
+                };
+                
+                // Single safety net - much longer timeout
+                setTimeout(() => {
+                    if (!completed && mobileCurrentUtterance) {
+                        completed = true;
+                        console.log('MOBILE NUCLEAR: 45 second timeout');
+                        mobileCurrentUtterance = null;
+                    }
+                }, 45000); // 45 second timeout
+                
+                // Speak with NO other operations
+                window.speechSynthesis.speak(mobileCurrentUtterance);
+                
+            } catch (error) {
+                console.error('MOBILE NUCLEAR: Speech error:', error);
+                mobileCurrentUtterance = null;
             }
         }
         
-        function processMobileSpeechQueue() {
-            if (!isMobileDevice || !speechActive || mobileProcessingQueue || mobileOnlySpeechQueue.length === 0) {
-                return;
-            }
-            
-            mobileProcessingQueue = true;
-            const textToSpeak = mobileOnlySpeechQueue.shift();
-            
-            console.log('MOBILE: Processing queue item -', textToSpeak);
-            
-            // Mark as spoken immediately to prevent any duplicates
-            mobileSpokenInstructions.set(textToSpeak, Date.now());
-            mobileSpeechInProgress = true;
-            
-            // Cancel any existing speech
-            try {
-                if (window.speechSynthesis.speaking) {
-                    window.speechSynthesis.cancel();
-                }
-            } catch (e) {
-                console.log('Cancel error:', e);
-            }
-            
-            try {
-                const utterance = new SpeechSynthesisUtterance(textToSpeak);
-                utterance.lang = 'en-US';
-                utterance.rate = 0.9; // Slightly slower for clarity
-                utterance.volume = 1.0;
-                utterance.pitch = 1.0;
-                
-                let speechCompleted = false;
-                
-                utterance.onstart = function() {
-                    console.log('MOBILE: Queue speech started -', textToSpeak);
-                };
-                
-                utterance.onend = function() {
-                    if (!speechCompleted) {
-                        speechCompleted = true;
-                        console.log('MOBILE: Queue speech completed -', textToSpeak);
-                        mobileSpeechInProgress = false;
-                        mobileProcessingQueue = false;
-                        
-                        // Process next item in queue after delay
-                        setTimeout(() => {
-                            if (mobileOnlySpeechQueue.length > 0) {
-                                processMobileSpeechQueue();
-                            }
-                        }, 1000); // 1 second gap between instructions
-                    }
-                };
-                
-                utterance.onerror = function(event) {
-                    if (!speechCompleted) {
-                        speechCompleted = true;
-                        console.log('MOBILE: Queue speech error -', event.error, textToSpeak);
-                        mobileSpeechInProgress = false;
-                        mobileProcessingQueue = false;
-                        
-                        // Continue processing queue on error
-                        setTimeout(() => {
-                            if (mobileOnlySpeechQueue.length > 0) {
-                                processMobileSpeechQueue();
-                            }
-                        }, 1000);
-                    }
-                };
-                
-                // Extended timeout for complete instruction
-                setTimeout(() => {
-                    if (!speechCompleted) {
-                        speechCompleted = true;
-                        console.log('MOBILE: Queue timeout -', textToSpeak);
-                        mobileSpeechInProgress = false;
-                        mobileProcessingQueue = false;
-                        window.speechSynthesis.cancel();
-                        
-                        // Continue queue after timeout
-                        setTimeout(() => {
-                            if (mobileOnlySpeechQueue.length > 0) {
-                                processMobileSpeechQueue();
-                            }
-                        }, 1000);
-                    }
-                }, 30000); // 30 second timeout
-                
-                // Speak the instruction
-                window.speechSynthesis.speak(utterance);
-                
-            } catch (error) {
-                console.error('MOBILE: Queue speech creation error:', error);
-                mobileSpeechInProgress = false;
-                mobileProcessingQueue = false;
-                
-                // Continue processing queue on error
-                setTimeout(() => {
-                    if (mobileOnlySpeechQueue.length > 0) {
-                        processMobileSpeechQueue();
-                    }
-                }, 1000);
-            }
-        }
-
-        // Updated mobile speech function to use queue
+        // Replace mobile speech entirely
         function speakOnMobile(text) {
-            if (!isMobileDevice || !speechActive || !text) return;
-            addToMobileSpeechQueue(text);
+            speakOnMobileNuclear(text);
         }
 
         // Desktop speech function
@@ -599,11 +541,10 @@
             currentStepIndex = 0;
             
             if (isMobileDevice) {
-                mobileSpokenInstructions.clear();
-                mobileSpeechInProgress = false;
-                mobileOnlySpeechQueue = []; // Clear the queue
-                mobileProcessingQueue = false;
-                console.log('MOBILE: Cleared all speech systems');
+                mobileCurrentUtterance = null;
+                mobileLastSpokenText = '';
+                mobileLastSpokenTime = 0;
+                console.log('MOBILE NUCLEAR: Cleared all speech systems');
             }
             
             document.getElementById('distance-info').classList.add('hidden');
