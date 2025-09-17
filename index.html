@@ -38,7 +38,7 @@
     </div>
 
     <script>
-        console.log('Starting clean geofence app...');
+        console.log('Starting geofence app...');
         
         // Basic variables
         mapboxgl.accessToken = 'pk.eyJ1IjoibW1ndDIwMDUiLCJhIjoiY21laW4xY2dqMDQ1NDJpcHdqOW1hMDk3ZCJ9.aSTR_k5xhzGJNPPAVAFnlw';
@@ -49,10 +49,11 @@
         let isInitialLoad = true, speechActive = false, directionsReady = false;
         let currentRoute = null;
         
-        // Speech variables
+        // Speech variables - using comprehensive tracking to prevent duplicates
         let isMobileDevice = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-        let spokenInstructions = new Set();
-        let isCurrentlySpeaking = false;
+        let spokenInstructionsHistory = new Set(); // Permanent history of ALL spoken instructions
+        let recentlySpoken = new Map(); // Track when each instruction was last spoken
+        const SPEECH_COOLDOWN = 10000; // Don't repeat same instruction within 10 seconds
         
         // Navigation variables
         const INSTRUCTION_TRIGGER_DISTANCE = 300;
@@ -60,7 +61,6 @@
         let currentStepIndex = 0;
         let lastUserLocation = null;
         let distanceCheckInterval = null;
-        let nextInstructionTriggered = new Set();
 
         console.log('Variables initialized, mobile:', isMobileDevice);
 
@@ -112,83 +112,63 @@
             }
         }
 
-        // Simplified speech function that works on mobile
-        function speakText(text, shouldUpdateMessage = true) {
-            if (!text) {
-                console.log('No text provided to speak');
-                return;
+        // Simple speech function with strong duplicate prevention
+        function speakText(text) {
+            if (!speechActive || !text) return false;
+            
+            // Normalize the text for comparison
+            const normalizedText = text.toLowerCase().replace(/[^\w\s]/g, '').trim();
+            
+            // Check if we've recently spoken this
+            const lastSpokenTime = recentlySpoken.get(normalizedText);
+            const now = Date.now();
+            
+            if (lastSpokenTime && (now - lastSpokenTime) < SPEECH_COOLDOWN) {
+                console.log('Skipping (too recent):', text);
+                return false;
             }
             
-            console.log('speakText called with:', text, 'speechActive:', speechActive);
-            
-            // Update message first for immediate feedback
-            if (shouldUpdateMessage) {
+            // Check if this exact instruction was ever spoken in this session
+            if (spokenInstructionsHistory.has(normalizedText)) {
+                console.log('Skipping (already in history):', text);
+                // But still update the display
                 updateMessage(text);
-                console.log('Message displayed:', text);
+                return false;
             }
             
-            // Check if we should speak
-            if (!speechActive) {
-                console.log('Speech not active, skipping speech but message shown');
-                return;
-            }
+            console.log('Speaking new instruction:', text);
             
-            // Check browser support
-            if (!window.speechSynthesis) {
-                console.error('Speech synthesis not supported');
-                return;
-            }
+            // Mark as spoken
+            spokenInstructionsHistory.add(normalizedText);
+            recentlySpoken.set(normalizedText, now);
             
-            const textKey = text.toLowerCase().trim();
-            if (spokenInstructions.has(textKey)) {
-                console.log('Already spoken:', text);
-                return;
-            }
-            spokenInstructions.add(textKey);
+            // Update display immediately
+            updateMessage(text);
             
-            // Simple speech implementation
             try {
-                // Always cancel previous speech
+                // Cancel any pending speech
                 window.speechSynthesis.cancel();
                 
-                // Wait a tiny bit after cancel
-                setTimeout(() => {
-                    const utterance = new SpeechSynthesisUtterance(text);
-                    utterance.rate = 1.0;
-                    utterance.pitch = 1.0;
-                    utterance.volume = 1.0;
-                    
-                    utterance.onstart = () => {
-                        console.log('✓ Speech STARTED:', text.substring(0, 30) + '...');
-                        isCurrentlySpeaking = true;
-                    };
-                    
-                    utterance.onend = () => {
-                        console.log('✓ Speech ENDED');
-                        isCurrentlySpeaking = false;
-                    };
-                    
-                    utterance.onerror = (e) => {
-                        console.error('✗ Speech ERROR:', e.error);
-                        isCurrentlySpeaking = false;
-                    };
-                    
-                    // Speak it
-                    window.speechSynthesis.speak(utterance);
-                    console.log('Speech queued successfully');
-                    
-                    // Debug: Check if speaking after a moment
-                    setTimeout(() => {
-                        console.log('Speech status - speaking:', window.speechSynthesis.speaking, 
-                                   'pending:', window.speechSynthesis.pending,
-                                   'paused:', window.speechSynthesis.paused);
-                    }, 500);
-                    
-                }, 50); // Small delay after cancel
+                // Create and speak utterance
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.rate = isMobileDevice ? 0.9 : 1.0;
+                utterance.volume = 1.0;
+                utterance.pitch = 1.0;
+                
+                utterance.onend = () => {
+                    console.log('Finished speaking');
+                };
+                
+                utterance.onerror = (e) => {
+                    console.warn('Speech error:', e.error);
+                };
+                
+                window.speechSynthesis.speak(utterance);
+                return true;
                 
             } catch (error) {
-                console.error('Exception in speakText:', error);
-                isCurrentlySpeaking = false;
+                console.error('Speech error:', error);
+                return false;
             }
         }
 
@@ -268,8 +248,9 @@
                 }
             }
             
+            // Look at first few steps if no active step
             const allSteps = document.querySelectorAll('.mapbox-directions-step');
-            for (let i = 0; i < Math.min(3, allSteps.length); i++) {
+            for (let i = 0; i < Math.min(2, allSteps.length); i++) {
                 const step = allSteps[i];
                 const instruction = extractInstructionFromStep(step);
                 if (instruction && instruction.length > 8) {
@@ -293,6 +274,7 @@
                 const instructionEl = stepElement.querySelector(selector);
                 if (instructionEl) {
                     const text = instructionEl.textContent.trim();
+                    // Filter out distance/time only text
                     if (text.length > 8 && !text.match(/^\d+\.?\d*\s*(km|mi|ft|miles?|minutes?|min)/i)) {
                         return text;
                     }
@@ -318,26 +300,19 @@
             }
             
             distanceCheckInterval = setInterval(() => {
-                if (!speechActive || !lastUserLocation || isCurrentlySpeaking) return;
+                if (!speechActive || !lastUserLocation) return;
                 
                 const distanceData = calculateDistanceToNextStep(lastUserLocation);
                 if (!distanceData) return;
                 
                 updateDistanceInfo(distanceData);
                 
-                const stepKey = `${currentStepIndex}_${distanceData.instruction}`;
-                
-                if (distanceData.distance <= INSTRUCTION_TRIGGER_DISTANCE && 
-                    !nextInstructionTriggered.has(stepKey)) {
-                    
-                    console.log(`Triggering instruction at ${Math.round(distanceData.distance)} feet: ${distanceData.instruction}`);
-                    
-                    nextInstructionTriggered.add(stepKey);
-                    
-                    // Speak with immediate message update for mobile
-                    speakText(distanceData.instruction, true);
+                // Only speak if we're close enough and haven't spoken this instruction yet
+                if (distanceData.distance <= INSTRUCTION_TRIGGER_DISTANCE) {
+                    speakText(distanceData.instruction);
                 }
                 
+                // Move to next step when very close
                 if (distanceData.distance <= 50) {
                     const nextStepIndex = currentStepIndex + 1;
                     if (nextStepIndex < routeSteps.length) {
@@ -346,7 +321,7 @@
                     }
                 }
                 
-            }, 3000);
+            }, 3000); // Check every 3 seconds
         }
 
         // Start turn-by-turn navigation
@@ -355,27 +330,22 @@
             
             console.log('Starting turn-by-turn navigation');
             
-            // Reset tracking
-            spokenInstructions.clear();
-            nextInstructionTriggered.clear();
+            // Clear tracking for new navigation session
+            // Keep history but clear recent to allow re-announcement if needed
+            recentlySpoken.clear();
             
-            // Get and speak first instruction
+            // Get and speak first instruction after a short delay
             setTimeout(() => {
                 const firstInstruction = getCurrentInstruction();
                 if (firstInstruction && firstInstruction.length > 8) {
-                    console.log('Speaking first instruction:', firstInstruction);
-                    
-                    speakText(firstInstruction, true);
-                    
-                    // Mark as triggered to prevent repeats
-                    const stepKey = `${currentStepIndex}_${firstInstruction}`;
-                    nextInstructionTriggered.add(stepKey);
+                    console.log('First instruction:', firstInstruction);
+                    speakText(firstInstruction);
                 }
                 
-                // Start distance monitoring after initial instruction
+                // Start monitoring after initial instruction
                 setTimeout(() => {
                     startDistanceBasedNavigation();
-                }, 3000);
+                }, 2000);
                 
             }, 1000);
         }
@@ -389,13 +359,7 @@
                 distanceCheckInterval = null;
             }
             
-            spokenInstructions.clear();
-            nextInstructionTriggered.clear();
             currentStepIndex = 0;
-            isCurrentlySpeaking = false;
-            
-            // Cancel any ongoing speech
-            window.speechSynthesis.cancel();
             
             document.getElementById('distance-info').classList.add('hidden');
         }
@@ -414,66 +378,37 @@
         }
 
         function toggleVoiceNavigation() {
-            console.log('=== Voice button clicked ===');
-            
-            // Test if speech synthesis works at all
-            if (!window.speechSynthesis) {
-                alert('Speech synthesis not supported on this browser. Please use Chrome, Safari, or Edge.');
-                return;
-            }
-            
+            console.log('Voice button clicked');
             speechActive = !speechActive;
-            console.log('Speech active set to:', speechActive);
             
             if (speechActive) {
-                // Test speech with a simple message first
-                console.log('Testing speech synthesis...');
+                // Clear speech history for new session
+                spokenInstructionsHistory.clear();
+                recentlySpoken.clear();
                 
-                // Clear any pending speech
-                window.speechSynthesis.cancel();
+                updateMessage('Voice navigation enabled');
                 
-                // Create test utterance
-                const testUtterance = new SpeechSynthesisUtterance('Testing voice');
-                testUtterance.volume = 1.0;
-                testUtterance.rate = 1.0;
+                // Speak announcement
+                try {
+                    window.speechSynthesis.cancel();
+                    const announcement = new SpeechSynthesisUtterance('Voice navigation enabled');
+                    announcement.rate = isMobileDevice ? 0.9 : 1.0;
+                    window.speechSynthesis.speak(announcement);
+                } catch (e) {
+                    console.error('Error with announcement:', e);
+                }
                 
-                testUtterance.onstart = () => console.log('TEST: Speech started');
-                testUtterance.onend = () => console.log('TEST: Speech ended');
-                testUtterance.onerror = (e) => console.error('TEST: Speech error:', e);
-                
-                // Try to speak
-                window.speechSynthesis.speak(testUtterance);
-                
-                // Check status
-                setTimeout(() => {
-                    const speaking = window.speechSynthesis.speaking;
-                    const pending = window.speechSynthesis.pending;
-                    console.log('TEST: Speaking:', speaking, 'Pending:', pending);
-                    
-                    if (!speaking && !pending) {
-                        console.warn('Speech may be blocked. User interaction required or check device audio settings.');
-                        // Try one more time with user action
-                        const retryUtterance = new SpeechSynthesisUtterance('Voice navigation enabled');
-                        window.speechSynthesis.speak(retryUtterance);
-                    }
-                }, 100);
-                
-                // Now handle normal flow
                 if (!directionsReady) {
-                    updateMessage('Waiting for route to load...');
-                } else {
-                    updateMessage('Voice navigation enabled');
-                    
-                    // Try actual navigation speech
                     setTimeout(() => {
-                        speakText('Voice navigation enabled', false);
-                        setTimeout(() => {
-                            startTurnByTurnNavigation();
-                        }, 2000);
-                    }, 500);
+                        updateMessage('Waiting for route to load...');
+                    }, 2000);
+                } else {
+                    // Start navigation after announcement
+                    setTimeout(() => {
+                        startTurnByTurnNavigation();
+                    }, 2500);
                 }
             } else {
-                console.log('Disabling voice navigation');
                 updateMessage('Voice navigation disabled');
                 stopTurnByTurnNavigation();
                 window.speechSynthesis.cancel();
@@ -523,9 +458,8 @@
                             directionsReady = true;
                             routeSteps = extractRouteSteps(currentRoute);
                             console.log(`Route ready with ${routeSteps.length} steps`);
-                            updateVoiceButtonState();
                             
-                            // If voice navigation was already enabled, start turn-by-turn
+                            // If voice was already active, restart navigation
                             if (speechActive) {
                                 startTurnByTurnNavigation();
                             }
@@ -570,82 +504,9 @@
         document.addEventListener('DOMContentLoaded', function() {
             console.log('DOM loaded');
             
-            // Add debug info to page
-            const debugInfo = document.createElement('div');
-            debugInfo.id = 'debug-info';
-            debugInfo.style.cssText = 'position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.8); color: white; padding: 10px; font-size: 10px; z-index: 9999; max-width: 200px; display: none;';
-            document.body.appendChild(debugInfo);
-            
             const voiceBtn = document.getElementById('voice-button');
             if (voiceBtn) {
                 voiceBtn.addEventListener('click', toggleVoiceNavigation);
-                
-                // Add long press for debug mode
-                let pressTimer;
-                voiceBtn.addEventListener('touchstart', function() {
-                    pressTimer = setTimeout(() => {
-                        const debug = document.getElementById('debug-info');
-                        debug.style.display = debug.style.display === 'none' ? 'block' : 'none';
-                    }, 2000);
-                });
-                voiceBtn.addEventListener('touchend', function() {
-                    clearTimeout(pressTimer);
-                });
-            }
-            
-            // Check speech synthesis support
-            if (window.speechSynthesis) {
-                console.log('✓ Speech synthesis supported');
-                
-                // Update debug info
-                const updateDebug = () => {
-                    const debug = document.getElementById('debug-info');
-                    if (debug) {
-                        const voices = window.speechSynthesis.getVoices();
-                        debug.innerHTML = `
-                            Speech: ${window.speechSynthesis ? '✓' : '✗'}<br>
-                            Voices: ${voices.length}<br>
-                            Speaking: ${window.speechSynthesis.speaking}<br>
-                            Pending: ${window.speechSynthesis.pending}<br>
-                            Paused: ${window.speechSynthesis.paused}<br>
-                            Mobile: ${isMobileDevice ? 'Yes' : 'No'}
-                        `;
-                    }
-                };
-                
-                // Initial check
-                updateDebug();
-                setInterval(updateDebug, 1000);
-                
-                // Load voices
-                const loadVoices = () => {
-                    const voices = window.speechSynthesis.getVoices();
-                    console.log('Voices available:', voices.length);
-                    if (voices.length > 0) {
-                        console.log('Sample voices:', voices.slice(0, 3).map(v => v.name));
-                    }
-                    return voices;
-                };
-                
-                // Try loading voices immediately
-                loadVoices();
-                
-                // Also listen for voices changed event
-                window.speechSynthesis.onvoiceschanged = loadVoices;
-                
-                // Test speech on first user interaction
-                document.addEventListener('click', function testSpeech() {
-                    if (!window.__speechTested) {
-                        window.__speechTested = true;
-                        console.log('First click detected, testing speech...');
-                        const test = new SpeechSynthesisUtterance('test');
-                        test.volume = 0.01;
-                        window.speechSynthesis.speak(test);
-                    }
-                }, { once: true });
-                
-            } else {
-                console.error('✗ Speech synthesis NOT supported');
             }
         });
 
