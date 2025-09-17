@@ -113,7 +113,7 @@
         }
 
         // Simple speech function with strong duplicate prevention
-        function speakText(text, skipCancel = false) {
+        function speakText(text) {
             if (!speechActive || !text) return false;
             
             // Normalize the text for comparison
@@ -146,12 +146,7 @@
             updateMessage(text);
             
             try {
-                // Only cancel if not told to skip (to avoid cutting off previous speech)
-                if (!skipCancel) {
-                    window.speechSynthesis.cancel();
-                }
-                
-                // Create and speak utterance
+                // DON'T cancel speech - let it queue naturally
                 const utterance = new SpeechSynthesisUtterance(text);
                 utterance.rate = isMobileDevice ? 0.9 : 1.0;
                 utterance.volume = 1.0;
@@ -326,31 +321,11 @@
             }, 3000); // Check every 3 seconds
         }
 
-        // Start turn-by-turn navigation
+        // Start turn-by-turn navigation  
         function startTurnByTurnNavigation() {
-            if (!speechActive || !directionsReady) return;
-            
-            console.log('Starting turn-by-turn navigation');
-            
-            // Clear tracking for new navigation session
-            // Keep history but clear recent to allow re-announcement if needed
-            recentlySpoken.clear();
-            
-            // Get and speak first instruction after a longer delay to avoid cutting off "enabled" message
-            setTimeout(() => {
-                const firstInstruction = getCurrentInstruction();
-                if (firstInstruction && firstInstruction.length > 8) {
-                    console.log('First instruction:', firstInstruction);
-                    // Don't cancel previous speech (the "enabled" message might still be playing)
-                    speakText(firstInstruction, true); // true = skip cancel
-                }
-                
-                // Start monitoring after initial instruction
-                setTimeout(() => {
-                    startDistanceBasedNavigation();
-                }, 2000);
-                
-            }, 3500); // Increased delay to let "Voice navigation enabled" finish
+            // This function is no longer called from toggleVoiceNavigation
+            // First instruction is handled directly in toggle function
+            console.log('Turn-by-turn navigation already started');
         }
 
         // Stop navigation
@@ -391,32 +366,53 @@
                 
                 updateMessage('Voice navigation enabled');
                 
-                // Speak announcement
+                // Cancel any existing speech first
+                window.speechSynthesis.cancel();
+                
+                // Speak announcement with a callback for when it ends
                 try {
-                    window.speechSynthesis.cancel();
                     const announcement = new SpeechSynthesisUtterance('Voice navigation enabled');
                     announcement.rate = isMobileDevice ? 0.9 : 1.0;
-                    window.speechSynthesis.speak(announcement);
                     
-                    // Track when announcement ends to better time the first instruction
                     announcement.onend = () => {
-                        console.log('Finished announcing voice enabled');
-                        // If route is ready, speak first instruction now
-                        if (directionsReady) {
-                            setTimeout(() => {
+                        console.log('Announcement finished, adding brief pause...');
+                        
+                        // Brief pause after announcement (matching desktop behavior)
+                        setTimeout(() => {
+                            if (directionsReady && speechActive) {
                                 const firstInstruction = getCurrentInstruction();
                                 if (firstInstruction && firstInstruction.length > 8) {
-                                    console.log('Speaking first instruction after announcement:', firstInstruction);
-                                    speakText(firstInstruction, true); // Don't cancel
+                                    console.log('Speaking first instruction after pause:', firstInstruction);
+                                    speakText(firstInstruction);
+                                    
+                                    // Start distance monitoring after first instruction
+                                    setTimeout(() => {
+                                        startDistanceBasedNavigation();
+                                    }, 3000);
                                 }
-                                
-                                // Start distance monitoring
-                                setTimeout(() => {
-                                    startDistanceBasedNavigation();
-                                }, 2000);
-                            }, 500); // Small gap between announcement and first instruction
+                            }
+                        }, 800); // Brief 800ms pause matching desktop
+                    };
+                    
+                    announcement.onerror = (e) => {
+                        console.error('Announcement error:', e);
+                        // Fallback: try to speak first instruction anyway
+                        if (directionsReady && speechActive) {
+                            setTimeout(() => {
+                                const firstInstruction = getCurrentInstruction();
+                                if (firstInstruction) {
+                                    speakText(firstInstruction);
+                                    setTimeout(() => {
+                                        startDistanceBasedNavigation();
+                                    }, 3000);
+                                }
+                            }, 2000);
                         }
                     };
+                    
+                    window.speechSynthesis.speak(announcement);
+                    console.log('Announcement started');
+                    
                 } catch (e) {
                     console.error('Error with announcement:', e);
                 }
